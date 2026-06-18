@@ -91,7 +91,7 @@ export function deleteAssignment(id) {
 }
 
 export function autoAssign(programId) {
-  return apiRequest('POST', '/auto-assign/', { program: programId })
+  return apiRequest('POST', '/auto-assign/', { program_id: programId })
 }
 
 export function applyAutoAssign(assignments) {

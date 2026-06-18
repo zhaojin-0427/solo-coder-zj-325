@@ -38,8 +38,8 @@
                 <div class="aria-info">
                   <div class="aria-name">{{ aria.name }}</div>
                   <div class="aria-meta">
-                    <span class="tag active">{{ aria.role_type }}</span>
-                    <span class="duration">{{ aria.duration }}分钟</span>
+                    <span class="tag active">{{ aria.role_type_display || getRoleTypeDisplay(aria.role_type) }}</span>
+                    <span class="duration">{{ Math.ceil(aria.duration / 60) }}分钟</span>
                   </div>
                 </div>
               </div>
@@ -59,7 +59,7 @@
           <div v-else>
             <div class="selected-aria-info">
               <h4>{{ selectedAria.name }}</h4>
-              <p>需要角色：<span class="tag active">{{ selectedAria.role_type }}</span></p>
+              <p>需要角色：<span class="tag active">{{ selectedAria.role_type_display || getRoleTypeDisplay(selectedAria.role_type) }}</span></p>
             </div>
 
             <div class="assignment-section">
@@ -325,6 +325,17 @@ async function handleAutoAssign() {
     const result = await store.runAutoAssign(selectedProgram.value)
     ElMessage.success(`自动分配完成，共分配 ${result.count} 个唱段`)
   }).catch(() => {})
+}
+
+function getRoleTypeDisplay(roleType) {
+  const typeMap = {
+    'sheng': '生',
+    'dan': '旦',
+    'jing': '净',
+    'mo': '末',
+    'chou': '丑'
+  }
+  return typeMap[roleType] || roleType
 }
 </script>
 

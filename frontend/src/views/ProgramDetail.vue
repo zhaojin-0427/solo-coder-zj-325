@@ -60,18 +60,16 @@
               <el-table-column prop="name" label="唱段名称" min-width="180" />
               <el-table-column prop="role_type" label="角色类型" width="120">
                 <template #default="{ row }">
-                  <span class="tag active">{{ row.role_type }}</span>
+                  <span class="tag active">{{ row.role_type_display || getRoleTypeDisplay(row.role_type) }}</span>
                 </template>
               </el-table-column>
               <el-table-column prop="duration" label="时长" width="100">
-                <template #default="{ row }">{{ row.duration }}分钟</template>
+                <template #default="{ row }">{{ Math.ceil(row.duration / 60) }}分钟</template>
               </el-table-column>
               <el-table-column prop="lyrics" label="歌词" min-width="250" show-overflow-tooltip />
-              <el-table-column prop="accompaniment_required" label="伴奏" width="100">
+              <el-table-column prop="accompaniment_required" label="伴奏需求" min-width="150" show-overflow-tooltip>
                 <template #default="{ row }">
-                  <el-tag :type="row.accompaniment_required ? 'success' : 'info'">
-                    {{ row.accompaniment_required ? '需要' : '不需要' }}
-                  </el-tag>
+                  <span>{{ row.accompaniment_required || '无' }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="150">
@@ -97,7 +95,7 @@
               <el-table-column prop="name" label="角色名称" min-width="150" />
               <el-table-column prop="role_type" label="角色类型" width="120">
                 <template #default="{ row }">
-                  <span class="tag active">{{ row.role_type }}</span>
+                  <span class="tag active">{{ row.role_type_display || getRoleTypeDisplay(row.role_type) }}</span>
                 </template>
               </el-table-column>
               <el-table-column prop="description" label="角色描述" min-width="300" />
@@ -123,22 +121,26 @@
         </el-form-item>
         <el-form-item label="角色类型" prop="role_type" :rules="[{ required: true }]">
           <el-select v-model="ariaForm.role_type" style="width: 100%">
-            <el-option label="生角" value="生角" />
-            <el-option label="旦角" value="旦角" />
-            <el-option label="净角" value="净角" />
-            <el-option label="丑角" value="丑角" />
-            <el-option label="老旦" value="老旦" />
-            <el-option label="小生" value="小生" />
+            <el-option label="生" value="sheng" />
+            <el-option label="旦" value="dan" />
+            <el-option label="净" value="jing" />
+            <el-option label="末" value="mo" />
+            <el-option label="丑" value="chou" />
           </el-select>
         </el-form-item>
-        <el-form-item label="时长" prop="duration" :rules="[{ required: true }]">
-          <el-input-number v-model="ariaForm.duration" :min="1" /> 分钟
+        <el-form-item label="时长(秒)" prop="duration" :rules="[{ required: true }]">
+          <el-input-number v-model="ariaForm.duration" :min="1" /> 秒
         </el-form-item>
         <el-form-item label="歌词" prop="lyrics">
           <el-input v-model="ariaForm.lyrics" type="textarea" :rows="4" />
         </el-form-item>
-        <el-form-item label="需要伴奏" prop="accompaniment_required">
-          <el-switch v-model="ariaForm.accompaniment_required" />
+        <el-form-item label="伴奏需求" prop="accompaniment_required">
+          <el-input 
+            v-model="ariaForm.accompaniment_required" 
+            type="textarea" 
+            :rows="2"
+            placeholder="请输入伴奏需求，如：京胡、月琴、鼓板等" 
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -154,12 +156,11 @@
         </el-form-item>
         <el-form-item label="角色类型" prop="role_type" :rules="[{ required: true }]">
           <el-select v-model="roleForm.role_type" style="width: 100%">
-            <el-option label="生角" value="生角" />
-            <el-option label="旦角" value="旦角" />
-            <el-option label="净角" value="净角" />
-            <el-option label="丑角" value="丑角" />
-            <el-option label="老旦" value="老旦" />
-            <el-option label="小生" value="小生" />
+            <el-option label="生" value="sheng" />
+            <el-option label="旦" value="dan" />
+            <el-option label="净" value="jing" />
+            <el-option label="末" value="mo" />
+            <el-option label="丑" value="chou" />
           </el-select>
         </el-form-item>
         <el-form-item label="角色描述" prop="description">
@@ -201,9 +202,9 @@ const ariaForm = reactive({
   order_index: 1,
   name: '',
   role_type: '',
-  duration: 5,
+  duration: 300,
   lyrics: '',
-  accompaniment_required: true
+  accompaniment_required: ''
 })
 
 const roleForm = reactive({
@@ -229,9 +230,9 @@ function openAriaDialog(aria = null) {
       order_index: programArias.value.length + 1,
       name: '',
       role_type: '',
-      duration: 5,
+      duration: 300,
       lyrics: '',
-      accompaniment_required: true
+      accompaniment_required: ''
     })
   }
   ariaDialogVisible.value = true
@@ -299,6 +300,17 @@ function deleteRole(row) {
       await store.removeRole(row.id)
       ElMessage.success('删除成功')
     }).catch(() => {})
+}
+
+function getRoleTypeDisplay(roleType) {
+  const typeMap = {
+    'sheng': '生',
+    'dan': '旦',
+    'jing': '净',
+    'mo': '末',
+    'chou': '丑'
+  }
+  return typeMap[roleType] || roleType
 }
 </script>
 

@@ -218,7 +218,7 @@ export const useOperaStore = defineStore('opera', () => {
   async function runAutoAssign(programId) {
     const result = await autoAssign(programId)
     await loadAssignments(programId)
-    return result
+    return { ...result, count: result.total_suggestions || 0 }
   }
 
   async function addRehearsal(data) {

@@ -172,6 +172,7 @@ class UnderstudyChange(models.Model):
         ('approved', '已批准'),
         ('completed', '已完成'),
         ('cancelled', '已取消'),
+        ('rejected', '已拒绝'),
     ]
     original_assignment = models.ForeignKey(AriaAssignment, on_delete=models.CASCADE, related_name='understudy_changes', verbose_name='原分配')
     substitute_member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='substitute_changes', verbose_name='替补成员')
