@@ -64,6 +64,18 @@ const routes = [
         name: 'Statistics',
         component: () => import('@/views/Statistics.vue'),
         meta: { title: '统计分析' }
+      },
+      {
+        path: 'performance-reviews',
+        name: 'PerformanceReviews',
+        component: () => import('@/views/PerformanceReviews.vue'),
+        meta: { title: '演出复盘' }
+      },
+      {
+        path: 'performance-reviews/:id',
+        name: 'PerformanceReviewDetail',
+        component: () => import('@/views/PerformanceReviewDetail.vue'),
+        meta: { title: '复盘详情' }
       }
     ]
   }

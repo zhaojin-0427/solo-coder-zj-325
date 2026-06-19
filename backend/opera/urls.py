@@ -7,7 +7,11 @@ from .views import (
     UnderstudyChangeViewSet, ArchiveViewSet,
     RehearsalCheckViewSet, RehearsalCheckItemViewSet,
     RehearsalCheckConfirmationViewSet, RiskActionItemViewSet,
-    StatisticsView, AutoAssignView, ApplyAutoAssignView
+    PerformanceReviewViewSet, PerformanceReviewItemViewSet,
+    PerformanceReviewConclusionViewSet, MemberSelfReviewViewSet,
+    ImprovementTaskViewSet,
+    StatisticsView, AutoAssignView, ApplyAutoAssignView,
+    CreatePerformanceReviewView, ConvertToTaskView
 )
 
 router = DefaultRouter()
@@ -24,10 +28,17 @@ router.register(r'rehearsal-checks', RehearsalCheckViewSet)
 router.register(r'rehearsal-check-items', RehearsalCheckItemViewSet)
 router.register(r'rehearsal-check-confirmations', RehearsalCheckConfirmationViewSet)
 router.register(r'risk-action-items', RiskActionItemViewSet)
+router.register(r'performance-reviews', PerformanceReviewViewSet)
+router.register(r'performance-review-items', PerformanceReviewItemViewSet)
+router.register(r'performance-review-conclusions', PerformanceReviewConclusionViewSet)
+router.register(r'member-self-reviews', MemberSelfReviewViewSet)
+router.register(r'improvement-tasks', ImprovementTaskViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
     path('statistics/', StatisticsView.as_view(), name='statistics'),
     path('auto-assign/', AutoAssignView.as_view(), name='auto-assign'),
     path('apply-auto-assign/', ApplyAutoAssignView.as_view(), name='apply-auto-assign'),
+    path('create-performance-review/', CreatePerformanceReviewView.as_view(), name='create-performance-review'),
+    path('convert-to-task/', ConvertToTaskView.as_view(), name='convert-to-task'),
 ]

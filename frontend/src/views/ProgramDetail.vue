@@ -174,6 +174,124 @@
             </el-table>
           </div>
         </el-tab-pane>
+
+        <el-tab-pane label="演出复盘" name="reviews">
+          <div class="tab-header">
+            <h3 class="section-title">演出复盘批次</h3>
+            <el-button 
+              type="primary" 
+              size="small" 
+              @click="openReviewDialog"
+              :disabled="program?.status !== 'archived'"
+            >
+              <el-icon><Plus /></el-icon>
+              新建复盘批次
+            </el-button>
+          </div>
+
+          <div v-if="program?.status !== 'archived'" class="opera-card">
+            <el-alert
+              title="节目尚未归档，无法创建演出复盘批次"
+              type="warning"
+              :closable="false"
+              show-icon
+            />
+          </div>
+
+          <div class="opera-card" v-else>
+            <el-table :data="programReviews" v-loading="store.loading" stripe empty-text="暂无演出复盘批次">
+              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column label="批次名称" min-width="200">
+                <template #default="{ row }">
+                  <el-button type="primary" link @click="goToReviewDetail(row.id)">
+                    {{ row.name }}
+                  </el-button>
+                </template>
+              </el-table-column>
+              <el-table-column prop="performance_date" label="演出日期" width="140" />
+              <el-table-column label="状态" width="120">
+                <template #default="{ row }">
+                  <el-tag :type="reviewStatusTagType(row.status)">
+                    {{ reviewStatusText(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="唱段数" width="90">
+                <template #default="{ row }">
+                  <el-tag type="info">{{ row.item_count || 0 }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="完成率" width="120">
+                <template #default="{ row }">
+                  <el-progress 
+                    :percentage="row.completion_rate || 0" 
+                    :stroke-width="10"
+                    :color="reviewProgressColor(row.completion_rate)"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column label="改进任务" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="row.improvement_task_count > 0 ? 'warning' : 'info'">
+                    {{ row.improvement_task_count || 0 }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="120" fixed="right">
+                <template #default="{ row }">
+                  <el-button type="primary" link @click="goToReviewDetail(row.id)">查看详情</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div v-if="latestReviewSummary" class="opera-card" style="margin-top: 20px">
+            <h3 class="section-title">最终复盘摘要</h3>
+            <div class="review-summary">
+              <div class="summary-item">
+                <div class="summary-label">最新复盘批次</div>
+                <div class="summary-value">{{ latestReviewSummary.name }}</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">演出日期</div>
+                <div class="summary-value">{{ latestReviewSummary.performance_date }}</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">复盘状态</div>
+                <div class="summary-value">
+                  <el-tag :type="reviewStatusTagType(latestReviewSummary.status)">
+                    {{ reviewStatusText(latestReviewSummary.status) }}
+                  </el-tag>
+                </div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">复盘唱段数</div>
+                <div class="summary-value">{{ latestReviewSummary.item_count || 0 }} 个</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">老师点评数</div>
+                <div class="summary-value">{{ latestReviewSummary.conclusion_count || 0 }} 条</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">成员自评数</div>
+                <div class="summary-value">{{ latestReviewSummary.self_review_total || 0 }} 条</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">改进任务数</div>
+                <div class="summary-value">{{ latestReviewSummary.improvement_task_count || 0 }} 个</div>
+              </div>
+              <div class="summary-item">
+                <div class="summary-label">完成率</div>
+                <div class="summary-value">{{ latestReviewSummary.completion_rate || 0 }}%</div>
+              </div>
+            </div>
+            <div style="margin-top: 16px">
+              <el-button type="primary" size="small" @click="goToReviewDetail(latestReviewSummary.id)">
+                查看完整复盘
+              </el-button>
+            </div>
+          </div>
+        </el-tab-pane>
       </el-tabs>
     </div>
 
@@ -238,6 +356,31 @@
         <el-button type="primary" @click="submitRole">确定</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="reviewDialogVisible" title="新建演出复盘批次" width="600px">
+      <el-alert
+        title="创建后将自动汇总该节目最终唱段分配、联排确认结果、风险处理记录、排练反馈、替补发生记录和实际演出备注，生成演出复盘清单。"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px"
+      />
+      <el-form :model="reviewForm" label-width="120px" ref="reviewFormRef">
+        <el-form-item label="批次名称" prop="name" :rules="[{ required: true, message: '请输入批次名称', trigger: 'blur' }]">
+          <el-input v-model="reviewForm.name" placeholder="如：首场演出复盘" />
+        </el-form-item>
+        <el-form-item label="演出日期" prop="performance_date" :rules="[{ required: true, message: '请选择演出日期', trigger: 'change' }]">
+          <el-date-picker v-model="reviewForm.performance_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="演出备注" prop="actual_performance_note">
+          <el-input v-model="reviewForm.actual_performance_note" type="textarea" :rows="3" placeholder="请输入实际演出中的备注信息" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="reviewDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitReview">确定创建</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -266,6 +409,12 @@ const program = computed(() => store.getProgramById(route.params.id))
 const programArias = computed(() => store.arias.filter(a => a.program === parseInt(route.params.id)))
 const programRoles = computed(() => store.roles.filter(r => r.program === parseInt(route.params.id)))
 const programChecks = computed(() => store.rehearsalChecks.filter(c => c.program === parseInt(route.params.id)))
+const programReviews = computed(() => store.performanceReviews.filter(r => r.program === parseInt(route.params.id)))
+const latestReviewSummary = computed(() => {
+  const reviews = programReviews.value
+  if (reviews.length === 0) return null
+  return reviews[0]
+})
 
 const ariaForm = reactive({
   order_index: 1,
@@ -288,12 +437,22 @@ const checkForm = reactive({
   notes: ''
 })
 
+const reviewDialogVisible = ref(false)
+const reviewFormRef = ref(null)
+const reviewForm = reactive({
+  name: '',
+  performance_date: '',
+  archive_id: null,
+  actual_performance_note: ''
+})
+
 onMounted(async () => {
   await Promise.all([
     store.loadPrograms(),
     store.loadArias(),
     store.loadRoles(),
-    store.loadRehearsalChecks(parseInt(route.params.id))
+    store.loadRehearsalChecks(parseInt(route.params.id)),
+    store.loadPerformanceReviews(parseInt(route.params.id))
   ])
   if (program.value && !checkForm.name) {
     checkForm.name = `${program.value.name} 演出前联排确认`
@@ -416,6 +575,68 @@ async function submitCheck() {
   }
 }
 
+function openReviewDialog() {
+  Object.assign(reviewForm, {
+    name: program.value ? `${program.value.name} 演出复盘` : '',
+    performance_date: '',
+    archive_id: null,
+    actual_performance_note: ''
+  })
+  reviewDialogVisible.value = true
+}
+
+async function submitReview() {
+  try {
+    await reviewFormRef.value.validate()
+    const result = await store.addPerformanceReview({
+      program_id: parseInt(route.params.id),
+      name: reviewForm.name,
+      performance_date: reviewForm.performance_date,
+      archive_id: reviewForm.archive_id,
+      actual_performance_note: reviewForm.actual_performance_note
+    })
+    ElMessage.success(`复盘批次创建成功，已生成 ${result.item_count || 0} 个复盘清单项`)
+    reviewDialogVisible.value = false
+    await store.loadPerformanceReviews(parseInt(route.params.id))
+  } catch (error) {
+    if (error !== false && error?.message) {
+      ElMessage.error('操作失败：' + error.message)
+    } else if (error !== false) {
+      ElMessage.error('操作失败')
+    }
+  }
+}
+
+function goToReviewDetail(id) {
+  router.push(`/performance-reviews/${id}`)
+}
+
+function reviewStatusText(status) {
+  const map = {
+    'draft': '草稿',
+    'teacher_reviewing': '老师复盘中',
+    'member_reviewing': '成员自评中',
+    'completed': '已完成'
+  }
+  return map[status] || status
+}
+
+function reviewStatusTagType(status) {
+  const map = {
+    'draft': 'info',
+    'teacher_reviewing': 'warning',
+    'member_reviewing': 'primary',
+    'completed': 'success'
+  }
+  return map[status] || 'info'
+}
+
+function reviewProgressColor(rate) {
+  if (rate >= 80) return '#2E7D32'
+  if (rate >= 50) return '#FF9800'
+  return '#C41E3A'
+}
+
 function getRoleTypeDisplay(roleType) {
   const typeMap = {
     'sheng': '生',
@@ -483,6 +704,31 @@ function programStatusTagType(status) {
   
   :deep(.el-tabs__active-bar) {
     background-color: #D4AF37 !important;
+  }
+}
+
+.review-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+
+  .summary-item {
+    padding: 12px 16px;
+    background: linear-gradient(135deg, rgba(196, 30, 58, 0.05), rgba(212, 175, 55, 0.05));
+    border-radius: 8px;
+    border-left: 3px solid #C41E3A;
+
+    .summary-label {
+      font-size: 13px;
+      color: #999;
+      margin-bottom: 6px;
+    }
+
+    .summary-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+    }
   }
 }
 </style>

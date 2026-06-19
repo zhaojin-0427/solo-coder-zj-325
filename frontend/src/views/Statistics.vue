@@ -62,6 +62,33 @@
       />
     </div>
 
+    <div class="stats-grid">
+      <StatsCard 
+        :icon="DataAnalysis" 
+        label="复盘批次总数" 
+        :value="reviewStats.total_reviews" 
+        bgColor="linear-gradient(135deg, #7B1FA2, #4A148C)"
+      />
+      <StatsCard 
+        :icon="CircleCheck" 
+        label="已完成复盘" 
+        :value="reviewStats.completed_reviews" 
+        bgColor="linear-gradient(135deg, #2E7D32, #1B5E20)"
+      />
+      <StatsCard 
+        :icon="TrendCharts" 
+        label="复盘完成率" 
+        :value="reviewStats.overall_completion_rate + '%'" 
+        bgColor="linear-gradient(135deg, #D4AF37, #B8860B)"
+      />
+      <StatsCard 
+        :icon="List" 
+        label="改进任务总数" 
+        :value="reviewStats.total_improvement_tasks" 
+        bgColor="linear-gradient(135deg, #009688, #004D40)"
+      />
+    </div>
+
     <el-row :gutter="20">
       <el-col :span="12">
         <div class="opera-card">
@@ -248,6 +275,93 @@
         </el-table-column>
       </el-table>
     </div>
+
+    <div class="opera-card">
+      <h3 class="section-title">演出复盘统计</h3>
+      
+      <el-row :gutter="20" style="margin-top: 16px">
+        <el-col :span="12">
+          <h4 class="sub-title">各节目复盘完成率</h4>
+          <div class="chart-container">
+            <v-chart class="chart small-chart" :option="reviewCompletionChartOption" autoresize />
+          </div>
+        </el-col>
+        <el-col :span="12">
+          <h4 class="sub-title">常见演出问题类型分布</h4>
+          <div class="chart-container">
+            <v-chart class="chart small-chart" :option="issueTypeChartOption" autoresize />
+          </div>
+        </el-col>
+      </el-row>
+
+      <el-row :gutter="20" style="margin-top: 16px">
+        <el-col :span="12">
+          <h4 class="sub-title">改进任务来源分布</h4>
+          <div class="chart-container">
+            <v-chart class="chart small-chart" :option="taskSourceChartOption" autoresize />
+          </div>
+        </el-col>
+        <el-col :span="12">
+          <h4 class="sub-title">成员改进任务完成率</h4>
+          <div class="chart-container">
+            <v-chart class="chart small-chart" :option="memberTaskChartOption" autoresize />
+          </div>
+        </el-col>
+      </el-row>
+
+      <el-row :gutter="20" style="margin-top: 16px">
+        <el-col :span="12">
+          <h4 class="sub-title">舞台表现分布</h4>
+          <div class="chart-container">
+            <v-chart class="chart small-chart" :option="stagePerformanceChartOption" autoresize />
+          </div>
+        </el-col>
+        <el-col :span="12">
+          <h4 class="sub-title">节奏稳定性分布</h4>
+          <div class="chart-container">
+            <v-chart class="chart small-chart" :option="rhythmStabilityChartOption" autoresize />
+          </div>
+        </el-col>
+      </el-row>
+
+      <h4 class="sub-title" style="margin-top: 24px">各节目演出复盘详情</h4>
+      <el-table :data="programReviewStats" stripe size="small">
+        <el-table-column prop="program_name" label="节目" min-width="160" />
+        <el-table-column prop="total_reviews" label="复盘批次" width="100">
+          <template #default="{ row }">
+            <el-tag type="info">{{ row.total_reviews }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="completed_reviews" label="已完成" width="100">
+          <template #default="{ row }">
+            <el-tag type="success">{{ row.completed_reviews }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="completion_rate" label="复盘完成率" width="140">
+          <template #default="{ row }">
+            <el-progress 
+              :percentage="row.completion_rate || 0" 
+              :stroke-width="10"
+              :color="(row.completion_rate || 0) >= 80 ? '#2E7D32' : (row.completion_rate || 0) >= 50 ? '#FF9800' : '#C41E3A'"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column prop="total_tasks" label="改进任务数" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.total_tasks > 0 ? 'warning' : 'info'">{{ row.total_tasks }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="task_completion_rate" label="任务完成率" width="140">
+          <template #default="{ row }">
+            <el-progress 
+              :percentage="row.task_completion_rate || 0" 
+              :stroke-width="10"
+              :color="(row.task_completion_rate || 0) >= 80 ? '#2E7D32' : (row.task_completion_rate || 0) >= 50 ? '#FF9800' : '#C41E3A'"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
   </div>
 </template>
 
@@ -264,7 +378,7 @@ import {
   TitleComponent, RadarComponent
 } from 'echarts/components'
 import StatsCard from '@/components/StatsCard.vue'
-import { Grid, UserFilled, VideoPlay, Calendar, Refresh, Right, Warning, Clock, CircleCheck, Timer } from '@element-plus/icons-vue'
+import { Grid, UserFilled, VideoPlay, Calendar, Refresh, Right, Warning, Clock, CircleCheck, Timer, DataAnalysis, TrendCharts, List } from '@element-plus/icons-vue'
 
 use([
   CanvasRenderer,
@@ -305,6 +419,23 @@ const riskStats = computed(() => store.statistics?.risk_closure_stats || {
 })
 
 const programRiskStats = computed(() => riskStats.value.program_risk_stats || [])
+
+const reviewStats = computed(() => store.statistics?.performance_review || {
+  total_reviews: 0,
+  completed_reviews: 0,
+  overall_completion_rate: 0,
+  total_improvement_tasks: 0,
+  completed_tasks: 0,
+  overall_task_completion_rate: 0,
+  program_review_stats: [],
+  issue_type_distribution: [],
+  stage_performance_distribution: [],
+  rhythm_stability_distribution: [],
+  member_task_stats: [],
+  task_source_breakdown: []
+})
+
+const programReviewStats = computed(() => reviewStats.value.program_review_stats || [])
 
 const memberOptions = computed(() => {
   if (!store.statistics) return []
@@ -830,6 +961,198 @@ const avgProcessingTimeChartOption = computed(() => {
         color: '#666',
         formatter: '{c}h'
       }
+    }]
+  }
+})
+
+const reviewCompletionChartOption = computed(() => {
+  const data = programReviewStats.value
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: '{b}: {c}%'
+    },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: data.map(d => d.program_name),
+      axisLabel: { color: '#666', interval: 0, rotate: 0 },
+      axisLine: { lineStyle: { color: '#E8DCC8' } }
+    },
+    yAxis: {
+      type: 'value',
+      name: '完成率(%)',
+      nameTextStyle: { color: '#666' },
+      axisLabel: { color: '#666', formatter: '{value}%' },
+      splitLine: { lineStyle: { color: '#E8DCC8', type: 'dashed' } },
+      max: 100
+    },
+    series: [{
+      name: '复盘完成率',
+      type: 'bar',
+      data: data.map(d => ({
+        value: d.completion_rate || 0,
+        itemStyle: {
+          color: (d.completion_rate || 0) >= 80 ? '#2E7D32' : (d.completion_rate || 0) >= 50 ? '#FF9800' : '#C41E3A',
+          borderRadius: [4, 4, 0, 0]
+        }
+      })),
+      barWidth: '50%',
+      label: {
+        show: true,
+        position: 'top',
+        color: '#666',
+        formatter: '{c}%'
+      }
+    }]
+  }
+})
+
+const issueTypeChartOption = computed(() => {
+  const data = reviewStats.value.issue_type_distribution || []
+  const colors = ['#C41E3A', '#D4AF37', '#2E7D32', '#FF9800', '#1976D2', '#7B1FA2']
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}个 ({d}%)' },
+    legend: { orient: 'vertical', left: 'left', textStyle: { color: '#666' } },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['65%', '50%'],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+      label: { show: false, position: 'center' },
+      emphasis: {
+        label: { show: true, fontSize: 16, fontWeight: 'bold', color: '#C41E3A' }
+      },
+      labelLine: { show: false },
+      data: data.map((d, i) => ({
+        value: d.count,
+        name: d.label,
+        itemStyle: { color: colors[i % colors.length] }
+      }))
+    }]
+  }
+})
+
+const taskSourceChartOption = computed(() => {
+  const data = reviewStats.value.task_source_breakdown || []
+  const colors = ['#7B1FA2', '#C41E3A', '#D4AF37', '#2E7D32', '#FF9800', '#1976D2']
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}个 ({d}%)' },
+    legend: { orient: 'vertical', left: 'left', textStyle: { color: '#666' } },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['65%', '50%'],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+      label: { show: false, position: 'center' },
+      emphasis: {
+        label: { show: true, fontSize: 16, fontWeight: 'bold', color: '#7B1FA2' }
+      },
+      labelLine: { show: false },
+      data: data.map((d, i) => ({
+        value: d.count,
+        name: d.label,
+        itemStyle: { color: colors[i % colors.length] }
+      }))
+    }]
+  }
+})
+
+const memberTaskChartOption = computed(() => {
+  const data = [...(reviewStats.value.member_task_stats || [])].sort((a, b) => a.completion_rate - b.completion_rate)
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: '{b}: {c}%'
+    },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: {
+      type: 'value',
+      name: '完成率(%)',
+      nameTextStyle: { color: '#666' },
+      axisLabel: { color: '#666', formatter: '{value}%' },
+      splitLine: { lineStyle: { color: '#E8DCC8', type: 'dashed' } },
+      max: 100
+    },
+    yAxis: {
+      type: 'category',
+      data: data.map(d => d.member_name),
+      axisLabel: { color: '#666', fontSize: 12 },
+      axisLine: { lineStyle: { color: '#E8DCC8' } }
+    },
+    series: [{
+      name: '任务完成率',
+      type: 'bar',
+      data: data.map(d => ({
+        value: d.completion_rate,
+        itemStyle: {
+          color: d.completion_rate >= 80 ? '#2E7D32' : d.completion_rate >= 50 ? '#FF9800' : '#C41E3A',
+          borderRadius: [0, 4, 4, 0]
+        }
+      })),
+      barWidth: '60%',
+      label: {
+        show: true,
+        position: 'right',
+        color: '#666',
+        formatter: '{c}%'
+      }
+    }]
+  }
+})
+
+const stagePerformanceChartOption = computed(() => {
+  const data = reviewStats.value.stage_performance_distribution || []
+  const colors = ['#2E7D32', '#4CAF50', '#FF9800', '#F44336', '#9E9E9E']
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}个 ({d}%)' },
+    legend: { bottom: 0, textStyle: { color: '#666' } },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['50%', '45%'],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+      label: { show: false, position: 'center' },
+      emphasis: {
+        label: { show: true, fontSize: 16, fontWeight: 'bold', color: '#2E7D32' }
+      },
+      labelLine: { show: false },
+      data: data.map((d, i) => ({
+        value: d.value,
+        name: d.name,
+        itemStyle: { color: colors[i % colors.length] }
+      }))
+    }]
+  }
+})
+
+const rhythmStabilityChartOption = computed(() => {
+  const data = reviewStats.value.rhythm_stability_distribution || []
+  const colors = ['#2E7D32', '#4CAF50', '#FF9800', '#F44336', '#9E9E9E']
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}个 ({d}%)' },
+    legend: { bottom: 0, textStyle: { color: '#666' } },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['50%', '45%'],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+      label: { show: false, position: 'center' },
+      emphasis: {
+        label: { show: true, fontSize: 16, fontWeight: 'bold', color: '#2E7D32' }
+      },
+      labelLine: { show: false },
+      data: data.map((d, i) => ({
+        value: d.value,
+        name: d.name,
+        itemStyle: { color: colors[i % colors.length] }
+      }))
     }]
   }
 })

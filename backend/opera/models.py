@@ -346,3 +346,145 @@ class RiskActionItem(models.Model):
 
     def is_active(self):
         return self.status == 'pending'
+
+
+class PerformanceReview(models.Model):
+    STATUS_CHOICES = [
+        ('draft', '草稿'),
+        ('teacher_reviewing', '老师复盘中'),
+        ('member_reviewing', '成员自评中'),
+        ('completed', '已完成'),
+    ]
+    program = models.ForeignKey(Program, on_delete=models.CASCADE, related_name='performance_reviews', verbose_name='所属节目')
+    archive = models.ForeignKey(Archive, on_delete=models.SET_NULL, null=True, blank=True, related_name='performance_reviews', verbose_name='关联归档版本')
+    name = models.CharField(max_length=200, verbose_name='复盘批次名称')
+    performance_date = models.DateField(verbose_name='演出日期')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft', verbose_name='状态')
+    actual_performance_note = models.TextField(blank=True, verbose_name='实际演出备注')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    completed_at = models.DateTimeField(null=True, blank=True, verbose_name='完成时间')
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = '演出复盘批次'
+        verbose_name_plural = '演出复盘批次'
+
+    def __str__(self):
+        return f'{self.program.name} - {self.name}'
+
+
+class PerformanceReviewItem(models.Model):
+    review = models.ForeignKey(PerformanceReview, on_delete=models.CASCADE, related_name='items', verbose_name='复盘批次')
+    aria = models.ForeignKey(Aria, on_delete=models.CASCADE, related_name='review_items', verbose_name='唱段')
+    order_index = models.IntegerField(verbose_name='唱段顺序快照')
+    role_type = models.CharField(max_length=20, choices=Aria.ROLE_TYPE_CHOICES, verbose_name='行当快照')
+    final_assignments = models.JSONField(default=list, verbose_name='最终分配快照')
+    rehearsal_check_summary = models.JSONField(default=dict, verbose_name='联排确认汇总')
+    risk_record_summary = models.JSONField(default=list, verbose_name='风险处理记录汇总')
+    rehearsal_feedback_summary = models.JSONField(default=list, verbose_name='排练反馈汇总')
+    understudy_record_summary = models.JSONField(default=list, verbose_name='替补发生记录汇总')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        ordering = ['review', 'order_index']
+        unique_together = ['review', 'aria']
+        verbose_name = '复盘清单项'
+        verbose_name_plural = '复盘清单项'
+
+    def __str__(self):
+        return f'{self.review.name} - {self.aria.name}'
+
+
+class PerformanceReviewConclusion(models.Model):
+    STAGE_PERFORMANCE_CHOICES = [
+        ('excellent', '优秀'),
+        ('good', '良好'),
+        ('average', '一般'),
+        ('needs_improvement', '需改进'),
+    ]
+    RHYTHM_CHOICES = [
+        ('stable', '稳定'),
+        ('mostly_stable', '基本稳定'),
+        ('unstable', '不稳定'),
+    ]
+    review_item = models.ForeignKey(PerformanceReviewItem, on_delete=models.CASCADE, related_name='conclusions', verbose_name='复盘清单项')
+    teacher = models.ForeignKey(Member, on_delete=models.SET_NULL, null=True, blank=True, related_name='taught_reviews', verbose_name='点评老师')
+    stage_performance = models.CharField(max_length=20, choices=STAGE_PERFORMANCE_CHOICES, default='good', verbose_name='舞台表现')
+    rhythm_stability = models.CharField(max_length=20, choices=RHYTHM_CHOICES, default='mostly_stable', verbose_name='节奏稳定性')
+    forgotten_lines = models.TextField(blank=True, verbose_name='忘词问题')
+    beat_issues = models.TextField(blank=True, verbose_name='抢板/掉板问题')
+    accompaniment_cohesion = models.TextField(blank=True, verbose_name='伴奏衔接问题')
+    overall_comment = models.TextField(blank=True, verbose_name='整体点评')
+    improvement_suggestions = models.TextField(blank=True, verbose_name='改进建议')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        ordering = ['review_item', '-created_at']
+        verbose_name = '复盘结论'
+        verbose_name_plural = '复盘结论'
+
+    def __str__(self):
+        return f'{self.review_item.aria.name} - 复盘结论'
+
+
+class MemberSelfReview(models.Model):
+    review_item = models.ForeignKey(PerformanceReviewItem, on_delete=models.CASCADE, related_name='self_reviews', verbose_name='复盘清单项')
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='self_reviews', verbose_name='成员')
+    self_rating = models.IntegerField(default=3, verbose_name='自评分数(1-5)')
+    self_comment = models.TextField(blank=True, verbose_name='自我评语')
+    improvement_goal = models.TextField(blank=True, verbose_name='下次改进目标')
+    highlights = models.TextField(blank=True, verbose_name='本场亮点')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        ordering = ['review_item', 'member']
+        unique_together = ['review_item', 'member']
+        verbose_name = '成员自评'
+        verbose_name_plural = '成员自评'
+
+    def __str__(self):
+        return f'{self.member.name} - {self.review_item.aria.name} 自评'
+
+
+class ImprovementTask(models.Model):
+    STATUS_CHOICES = [
+        ('pending', '待开始'),
+        ('in_progress', '进行中'),
+        ('completed', '已完成'),
+        ('cancelled', '已取消'),
+    ]
+    PRIORITY_CHOICES = [
+        ('high', '高'),
+        ('medium', '中'),
+        ('low', '低'),
+    ]
+    SOURCE_TYPE_CHOICES = [
+        ('risk', '未解决风险'),
+        ('performance_issue', '演出中暴露问题'),
+        ('teacher_suggestion', '老师改进建议'),
+        ('self_goal', '个人改进目标'),
+    ]
+    review = models.ForeignKey(PerformanceReview, on_delete=models.CASCADE, related_name='improvement_tasks', verbose_name='复盘批次')
+    review_item = models.ForeignKey(PerformanceReviewItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='improvement_tasks', verbose_name='关联清单项')
+    source_type = models.CharField(max_length=20, choices=SOURCE_TYPE_CHOICES, verbose_name='来源类型')
+    source_description = models.TextField(verbose_name='来源描述')
+    task_title = models.CharField(max_length=200, verbose_name='任务标题')
+    task_description = models.TextField(blank=True, verbose_name='任务描述')
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='medium', verbose_name='优先级')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='状态')
+    assignee = models.ForeignKey(Member, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_improvement_tasks', verbose_name='责任人')
+    deadline = models.DateField(null=True, blank=True, verbose_name='截止时间')
+    completion_note = models.TextField(blank=True, verbose_name='完成备注')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    completed_at = models.DateTimeField(null=True, blank=True, verbose_name='完成时间')
+    created_by = models.ForeignKey(Member, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_improvement_tasks', verbose_name='创建人')
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = '改进训练任务'
+        verbose_name_plural = '改进训练任务'
+
+    def __str__(self):
+        return self.task_title

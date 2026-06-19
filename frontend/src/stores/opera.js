@@ -14,7 +14,13 @@ import {
   fetchRehearsalCheckItems, fetchRiskDashboard, generateRiskActions,
   confirmAccompaniment, setRehearsalCheckItemRisk, updateRehearsalCheckConfirmation,
   fetchRiskActions, resolveRiskAction, confirmCloseRiskAction, rejectAutoResolve,
-  updateRiskActionHandler, fetchActiveRisks, fetchHistoryRisks, reviewItemRisks
+  updateRiskActionHandler, fetchActiveRisks, fetchHistoryRisks, reviewItemRisks,
+  fetchPerformanceReviews, createPerformanceReview, updatePerformanceReview, deletePerformanceReview,
+  fetchReviewSummary, fetchReviewItems, startTeacherReview, startMemberReview, completeReview,
+  fetchReviewConclusions, createReviewConclusion, updateReviewConclusion, deleteReviewConclusion,
+  fetchMemberSelfReviews, createMemberSelfReview, updateMemberSelfReview, deleteMemberSelfReview,
+  fetchImprovementTasks, createImprovementTask, updateImprovementTask, deleteImprovementTask,
+  completeImprovementTask, startImprovementTask, convertToTask
 } from '@/api/opera'
 
 export const useOperaStore = defineStore('opera', () => {
@@ -30,6 +36,11 @@ export const useOperaStore = defineStore('opera', () => {
   const statistics = ref(null)
   const rehearsalChecks = ref([])
   const riskActions = ref([])
+  const performanceReviews = ref([])
+  const reviewItems = ref([])
+  const reviewConclusions = ref([])
+  const selfReviews = ref([])
+  const improvementTasks = ref([])
   const loading = ref(false)
 
   const activePrograms = computed(() => programs.value.filter(p => ['planning', 'rehearsing', 'performing'].includes(p.status)))
@@ -162,6 +173,175 @@ export const useOperaStore = defineStore('opera', () => {
 
   function getRehearsalCheckById(id) {
     return rehearsalChecks.value.find(c => c.id === parseInt(id))
+  }
+
+  async function loadPerformanceReviews(programId = null) {
+    loading.value = true
+    try {
+      performanceReviews.value = await fetchPerformanceReviews(programId)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function addPerformanceReview(data) {
+    const result = await createPerformanceReview(data)
+    if (result.review) {
+      performanceReviews.value.unshift(result.review)
+      return result.review
+    }
+    return result
+  }
+
+  async function editPerformanceReview(id, data) {
+    const result = await updatePerformanceReview(id, data)
+    const index = performanceReviews.value.findIndex(r => r.id === id)
+    if (index !== -1) performanceReviews.value[index] = result
+    return result
+  }
+
+  async function removePerformanceReview(id) {
+    await deletePerformanceReview(id)
+    performanceReviews.value = performanceReviews.value.filter(r => r.id !== id)
+  }
+
+  function getPerformanceReviewById(id) {
+    return performanceReviews.value.find(r => r.id === parseInt(id))
+  }
+
+  async function getReviewSummary(reviewId) {
+    return await fetchReviewSummary(reviewId)
+  }
+
+  async function loadReviewItems(reviewId) {
+    loading.value = true
+    try {
+      reviewItems.value = await fetchReviewItems(reviewId)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function startTeacherReviewById(reviewId) {
+    const result = await startTeacherReview(reviewId)
+    const index = performanceReviews.value.findIndex(r => r.id === reviewId)
+    if (index !== -1) performanceReviews.value[index] = result
+    return result
+  }
+
+  async function startMemberReviewById(reviewId) {
+    const result = await startMemberReview(reviewId)
+    const index = performanceReviews.value.findIndex(r => r.id === reviewId)
+    if (index !== -1) performanceReviews.value[index] = result
+    return result
+  }
+
+  async function completeReviewById(reviewId) {
+    const result = await completeReview(reviewId)
+    const index = performanceReviews.value.findIndex(r => r.id === reviewId)
+    if (index !== -1) performanceReviews.value[index] = result
+    return result
+  }
+
+  async function loadReviewConclusions(reviewId = null, reviewItemId = null) {
+    loading.value = true
+    try {
+      reviewConclusions.value = await fetchReviewConclusions(reviewId, reviewItemId)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function addReviewConclusion(data) {
+    const result = await createReviewConclusion(data)
+    reviewConclusions.value.unshift(result)
+    return result
+  }
+
+  async function editReviewConclusion(id, data) {
+    const result = await updateReviewConclusion(id, data)
+    const index = reviewConclusions.value.findIndex(c => c.id === id)
+    if (index !== -1) reviewConclusions.value[index] = result
+    return result
+  }
+
+  async function removeReviewConclusion(id) {
+    await deleteReviewConclusion(id)
+    reviewConclusions.value = reviewConclusions.value.filter(c => c.id !== id)
+  }
+
+  async function loadSelfReviews(reviewId = null, reviewItemId = null, memberId = null) {
+    loading.value = true
+    try {
+      selfReviews.value = await fetchMemberSelfReviews(reviewId, reviewItemId, memberId)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function addSelfReview(data) {
+    const result = await createMemberSelfReview(data)
+    selfReviews.value.push(result)
+    return result
+  }
+
+  async function editSelfReview(id, data) {
+    const result = await updateMemberSelfReview(id, data)
+    const index = selfReviews.value.findIndex(r => r.id === id)
+    if (index !== -1) selfReviews.value[index] = result
+    return result
+  }
+
+  async function removeSelfReview(id) {
+    await deleteMemberSelfReview(id)
+    selfReviews.value = selfReviews.value.filter(r => r.id !== id)
+  }
+
+  async function loadImprovementTasks(reviewId = null, status = null, assigneeId = null) {
+    loading.value = true
+    try {
+      improvementTasks.value = await fetchImprovementTasks(reviewId, status, assigneeId)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function addImprovementTask(data) {
+    const result = await createImprovementTask(data)
+    improvementTasks.value.unshift(result)
+    return result
+  }
+
+  async function editImprovementTask(id, data) {
+    const result = await updateImprovementTask(id, data)
+    const index = improvementTasks.value.findIndex(t => t.id === id)
+    if (index !== -1) improvementTasks.value[index] = result
+    return result
+  }
+
+  async function removeImprovementTask(id) {
+    await deleteImprovementTask(id)
+    improvementTasks.value = improvementTasks.value.filter(t => t.id !== id)
+  }
+
+  async function completeImprovementTaskById(id, completionNote = '') {
+    const result = await completeImprovementTask(id, completionNote)
+    const index = improvementTasks.value.findIndex(t => t.id === id)
+    if (index !== -1) improvementTasks.value[index] = result
+    return result
+  }
+
+  async function startImprovementTaskById(id) {
+    const result = await startImprovementTask(id)
+    const index = improvementTasks.value.findIndex(t => t.id === id)
+    if (index !== -1) improvementTasks.value[index] = result
+    return result
+  }
+
+  async function convertToImprovementTask(data) {
+    const result = await convertToTask(data)
+    improvementTasks.value.unshift(result)
+    return result
   }
 
   async function getRehearsalCheckItems(checkId) {
@@ -406,6 +586,7 @@ export const useOperaStore = defineStore('opera', () => {
   return {
     programs, arias, roles, members, assignments, rehearsals, feedbacks, understudyChanges, archives, statistics, loading,
     rehearsalChecks, riskActions,
+    performanceReviews, reviewItems, reviewConclusions, selfReviews, improvementTasks,
     activePrograms, activeAssignments, pendingUnderstudy, openRehearsalChecks,
     loadPrograms, loadArias, loadRoles, loadMembers, loadAssignments, loadRehearsals, loadFeedbacks, loadUnderstudyChanges, loadStatistics, loadArchives,
     loadRehearsalChecks, addRehearsalCheck, editRehearsalCheck, removeRehearsalCheck,
@@ -422,6 +603,13 @@ export const useOperaStore = defineStore('opera', () => {
     addFeedback, editFeedback, removeFeedback,
     addUnderstudyChange, editUnderstudyChange,
     addArchive,
-    getProgramById, getRehearsalById, getRehearsalCheckById
+    getProgramById, getRehearsalById, getRehearsalCheckById,
+    loadPerformanceReviews, addPerformanceReview, editPerformanceReview, removePerformanceReview,
+    getPerformanceReviewById, getReviewSummary, loadReviewItems,
+    startTeacherReviewById, startMemberReviewById, completeReviewById,
+    loadReviewConclusions, addReviewConclusion, editReviewConclusion, removeReviewConclusion,
+    loadSelfReviews, addSelfReview, editSelfReview, removeSelfReview,
+    loadImprovementTasks, addImprovementTask, editImprovementTask, removeImprovementTask,
+    completeImprovementTaskById, startImprovementTaskById, convertToImprovementTask
   }
 })
