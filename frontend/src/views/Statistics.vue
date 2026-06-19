@@ -71,11 +71,11 @@
           <div class="chart-container">
             <div class="member-select">
               <el-select v-model="selectedMember" placeholder="选择成员" style="width: 200px" @change="updateRadarChart">
-                <el-option 
-                  v-for="m in memberOptions" 
-                  :key="m.name" 
-                  :label="m.name" 
-                  :value="m.name" 
+                <el-option
+                  v-for="m in memberOptions"
+                  :key="m.name"
+                  :label="m.name"
+                  :value="m.name"
                 />
               </el-select>
             </div>
@@ -84,22 +84,75 @@
         </div>
       </el-col>
     </el-row>
+
+    <div class="opera-card">
+      <h3 class="section-title">演出前风险统计</h3>
+      <div class="risk-overview">
+        <div class="risk-stat">
+          <div class="risk-stat-value">{{ preRisk.open_check_count }}</div>
+          <div class="risk-stat-label">进行中联排批次</div>
+        </div>
+        <div class="risk-stat">
+          <div class="risk-stat-value">{{ preRisk.risk_aria_count }}</div>
+          <div class="risk-stat-label">风险唱段数</div>
+        </div>
+        <div class="risk-stat">
+          <div class="risk-stat-value">{{ preRisk.pending_risk_actions }}</div>
+          <div class="risk-stat-label">待处理风险项</div>
+        </div>
+        <div class="risk-stat-link" @click="goToRehearsalChecks">
+          <el-icon><Right /></el-icon>
+          <span>前往联排确认看板</span>
+        </div>
+      </div>
+
+      <el-row :gutter="20" style="margin-top: 16px">
+        <el-col :span="12">
+          <h4 class="sub-title">风险标签分布</h4>
+          <div class="chart-container">
+            <v-chart class="chart small-chart" :option="riskFlagChartOption" autoresize />
+          </div>
+        </el-col>
+        <el-col :span="12">
+          <h4 class="sub-title">待处理项类型分布</h4>
+          <div class="chart-container">
+            <v-chart class="chart small-chart" :option="riskActionChartOption" autoresize />
+          </div>
+        </el-col>
+      </el-row>
+
+      <h4 class="sub-title" style="margin-top: 16px">各节目演出前风险</h4>
+      <el-table :data="preRisk.program_risk" stripe size="small">
+        <el-table-column prop="program_name" label="节目" min-width="160" />
+        <el-table-column prop="open_check_count" label="进行中批次" width="120">
+          <template #default="{ row }">
+            <el-tag type="warning">{{ row.open_check_count }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="risk_aria_count" label="风险唱段数" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.risk_aria_count > 0 ? 'danger' : 'success'">{{ row.risk_aria_count }}</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useOperaStore } from '@/stores/opera'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart, PieChart, RadarChart } from 'echarts/charts'
-import { 
-  GridComponent, TooltipComponent, LegendComponent, 
-  TitleComponent, RadarComponent 
+import {
+  GridComponent, TooltipComponent, LegendComponent,
+  TitleComponent, RadarComponent
 } from 'echarts/components'
 import StatsCard from '@/components/StatsCard.vue'
-import { Grid, UserFilled, VideoPlay, Calendar, Refresh } from '@element-plus/icons-vue'
+import { Grid, UserFilled, VideoPlay, Calendar, Refresh, Right } from '@element-plus/icons-vue'
 
 use([
   CanvasRenderer,
@@ -114,7 +167,17 @@ use([
 ])
 
 const store = useOperaStore()
+const router = useRouter()
 const selectedMember = ref('')
+
+const preRisk = computed(() => store.statistics?.pre_performance_risk || {
+  open_check_count: 0,
+  risk_aria_count: 0,
+  pending_risk_actions: 0,
+  flag_breakdown: [],
+  risk_action_breakdown: [],
+  program_risk: []
+})
 
 const memberOptions = computed(() => {
   if (!store.statistics) return []
@@ -217,8 +280,8 @@ const understudyChartOption = computed(() => {
         show: false
       },
       data: data.map((d, i) => ({
-        value: d.value,
-        name: d.name,
+        value: d.count,
+        name: d.program_name,
         itemStyle: { color: colors[i % colors.length] }
       }))
     }]
@@ -360,6 +423,77 @@ const activityChartOption = computed(() => {
 function updateRadarChart() {
 }
 
+const riskFlagChartOption = computed(() => {
+  const data = preRisk.value.flag_breakdown
+  const colors = {
+    attendance: '#C41E3A',
+    understudy: '#D4AF37',
+    feedback: '#2E7D32',
+    accompaniment: '#1976D2',
+    teacher_risk: '#7B1FA2'
+  }
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}个' },
+    legend: { bottom: 0, textStyle: { color: '#666' } },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['50%', '45%'],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+      label: { show: false, position: 'center' },
+      labelLine: { show: false },
+      data: data.map(d => ({
+        value: d.count,
+        name: d.label,
+        itemStyle: { color: colors[d.action_type] || '#999' }
+      }))
+    }]
+  }
+})
+
+const riskActionChartOption = computed(() => {
+  const data = preRisk.value.risk_action_breakdown
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: data.map(d => d.label),
+      axisLabel: { color: '#666', interval: 0, rotate: 0 },
+      axisLine: { lineStyle: { color: '#E8DCC8' } }
+    },
+    yAxis: {
+      type: 'value',
+      name: '数量',
+      nameTextStyle: { color: '#666' },
+      axisLabel: { color: '#666' },
+      splitLine: { lineStyle: { color: '#E8DCC8', type: 'dashed' } }
+    },
+    series: [{
+      name: '待处理项',
+      type: 'bar',
+      data: data.map(d => d.count),
+      itemStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: '#FF9800' },
+            { offset: 1, color: '#F57C00' }
+          ]
+        },
+        borderRadius: [4, 4, 0, 0]
+      },
+      barWidth: '50%',
+      label: { show: true, position: 'top', color: '#666' }
+    }]
+  }
+})
+
+function goToRehearsalChecks() {
+  router.push('/rehearsal-checks')
+}
+
 async function refreshData() {
   await store.loadStatistics()
 }
@@ -400,5 +534,57 @@ onMounted(async () => {
   top: 0;
   right: 0;
   z-index: 10;
+}
+
+.risk-overview {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  flex-wrap: wrap;
+
+  .risk-stat {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    padding: 16px;
+    background: linear-gradient(135deg, rgba(196, 30, 58, 0.06), rgba(212, 175, 55, 0.06));
+    border-radius: 10px;
+
+    .risk-stat-value {
+      font-size: 30px;
+      font-weight: bold;
+      color: #C41E3A;
+    }
+
+    .risk-stat-label {
+      font-size: 13px;
+      color: #666;
+      margin-top: 4px;
+    }
+  }
+
+  .risk-stat-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #C41E3A;
+    cursor: pointer;
+    font-weight: 600;
+
+    &:hover {
+      color: #8B0000;
+    }
+  }
+}
+
+.sub-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #C41E3A;
+  margin-bottom: 12px;
+}
+
+.small-chart {
+  height: 280px;
 }
 </style>

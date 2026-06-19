@@ -78,6 +78,41 @@ const understudyChanges = [
   { id: 3, original_assignment: 4, substitute_member: 7, reason: '李梅芳家中有事', date: '2024-06-19', status: 'completed' }
 ]
 
+const rehearsalChecks = [
+  {
+    id: 1, program: 1, name: '贵妃醉酒 演出前联排确认',
+    planned_performance_date: '2024-07-10', status: 'open', notes: '演出前联排确认',
+    created_at: '2024-06-25T10:00:00', item_count: 2, risk_aria_count: 1
+  }
+]
+
+const rehearsalCheckItems = [
+  {
+    id: 1, rehearsal_check: 1, aria: 1, order_index: 1, role_type: 'dan',
+    accompaniment_required: '京胡、月琴', accompaniment_confirmed: true, accompaniment_confirmed_by: 2,
+    risk_level: 'none', teacher_comment: '', risk_action_created: false,
+    latest_feedback_date: '2024-06-28', latest_start_beat_issue: '', latest_forgotten_lines: '',
+    latest_teacher_comments: '整体不错', aria_name: '海岛冰轮初转腾', risk_flags: [], risk_score: 0,
+    has_understudy: true, confirmations: [
+      { id: 1, check_item: 1, member: 1, member_name: '张素华', is_understudy: false, attendance_confirmed: true, lyrics_proficiency: 'familiar', needs_understudy_help: false, note: '' }
+    ]
+  },
+  {
+    id: 2, rehearsal_check: 1, aria: 2, order_index: 2, role_type: 'dan',
+    accompaniment_required: '京胡、二胡', accompaniment_confirmed: false, accompaniment_confirmed_by: null,
+    risk_level: 'high', teacher_comment: '起板问题需强化', risk_action_created: true,
+    latest_feedback_date: '2024-06-28', latest_start_beat_issue: '起板慢半拍', latest_forgotten_lines: '第二段忘词',
+    latest_teacher_comments: '需重点练习', aria_name: '杨玉环在殿前深深拜定', risk_flags: ['attendance', 'feedback', 'accompaniment', 'teacher_risk'], risk_score: 4,
+    has_understudy: false, confirmations: [
+      { id: 2, check_item: 2, member: 1, member_name: '张素华', is_understudy: false, attendance_confirmed: false, lyrics_proficiency: 'unconfirmed', needs_understudy_help: true, note: '' }
+    ]
+  }
+]
+
+const riskActions = [
+  { id: 1, check_item: 2, aria_name: '杨玉环在殿前深深拜定', aria_id: 2, rehearsal_check: 1, order_index: 2, action_type: 'feedback', action_type_display: '排练反馈问题', status: 'pending', status_display: '待处理', description: '起板问题需强化', created_at: '2024-06-26T10:00:00' }
+]
+
 const statistics = {
   program_rehearsal_counts: [
     { name: '贵妃醉酒', count: 3 },
@@ -106,7 +141,24 @@ const statistics = {
     { name: '赵彩云', values: { rehearsal_count: 7, assignment_count: 2, feedback_count: 1, on_time_rate: 88, performance_score: 82 } },
     { name: '陈丽娟', values: { rehearsal_count: 5, assignment_count: 0, feedback_count: 0, on_time_rate: 92, performance_score: 78 } },
     { name: '刘凤英', values: { rehearsal_count: 6, assignment_count: 2, feedback_count: 1, on_time_rate: 85, performance_score: 90 } }
-  ]
+  ],
+  pre_performance_risk: {
+    open_check_count: 1,
+    risk_aria_count: 1,
+    pending_risk_actions: 1,
+    flag_breakdown: [
+      { action_type: 'attendance', label: '未确认到场', count: 1 },
+      { action_type: 'accompaniment', label: '伴奏未确认', count: 1 },
+      { action_type: 'feedback', label: '排练反馈问题', count: 1 },
+      { action_type: 'teacher_risk', label: '老师标注风险', count: 1 }
+    ],
+    risk_action_breakdown: [
+      { action_type: 'feedback', label: '排练反馈问题', count: 1 }
+    ],
+    program_risk: [
+      { program_id: 1, program_name: '贵妃醉酒', risk_aria_count: 1, open_check_count: 1 }
+    ]
+  }
 }
 
 const handleRequest = function(method, url, data, params) {
@@ -128,6 +180,14 @@ const handleRequest = function(method, url, data, params) {
     return handleFeedbacks(method, url, data, params)
   } else if (url.startsWith('/understudy-changes')) {
     return handleUnderstudyChanges(method, url, data, params)
+  } else if (url.startsWith('/rehearsal-checks')) {
+    return handleRehearsalChecks(method, url, data, params)
+  } else if (url.startsWith('/rehearsal-check-items')) {
+    return handleRehearsalCheckItems(method, url, data)
+  } else if (url.startsWith('/rehearsal-check-confirmations')) {
+    return handleRehearsalCheckConfirmations(method, url, data)
+  } else if (url.startsWith('/risk-action-items')) {
+    return handleRiskActionItems(method, url, data, params)
   } else if (url.startsWith('/statistics')) {
     return statistics
   }
@@ -426,6 +486,116 @@ function handleUnderstudyChanges(method, url, data, params) {
       const newItem = { id: ++idCounter, ...data }
       understudyChanges.push(newItem)
       return newItem
+    }
+  }
+  return null
+}
+
+function handleRehearsalChecks(method, url, data, params) {
+  const idMatch = url.match(/\/rehearsal-checks\/(\d+)/)
+  if (idMatch) {
+    const id = parseInt(idMatch[1])
+    if (url.includes('/items/')) {
+      return rehearsalCheckItems.filter(i => i.rehearsal_check === id)
+    }
+    if (url.includes('/risk_dashboard/')) {
+      const items = rehearsalCheckItems.filter(i => i.rehearsal_check === id)
+      const riskItems = items.filter(i => i.risk_flags && i.risk_flags.length > 0)
+      return {
+        check_id: id, check_name: (rehearsalChecks.find(c => c.id === id) || {}).name, status: 'open',
+        risk_items: riskItems,
+        summary: { total_items: items.length, risk_aria_count: riskItems.length, flag_breakdown: [] }
+      }
+    }
+    if (url.includes('/generate_actions/')) {
+      return { created_count: 0, items: [] }
+    }
+    if (method === 'GET') {
+      return rehearsalChecks.find(c => c.id === id)
+    } else if (method === 'PUT') {
+      const index = rehearsalChecks.findIndex(c => c.id === id)
+      if (index !== -1) {
+        rehearsalChecks[index] = { ...rehearsalChecks[index], ...data }
+        return rehearsalChecks[index]
+      }
+    } else if (method === 'DELETE') {
+      const index = rehearsalChecks.findIndex(c => c.id === id)
+      if (index !== -1) rehearsalChecks.splice(index, 1)
+      return { success: true }
+    }
+  } else {
+    if (method === 'GET') {
+      if (params && params.program_id) {
+        return rehearsalChecks.filter(c => c.program === parseInt(params.program_id))
+      }
+      return [...rehearsalChecks]
+    } else if (method === 'POST') {
+      const newItem = { id: ++idCounter, item_count: 0, risk_aria_count: 0, status: 'open', ...data }
+      rehearsalChecks.push(newItem)
+      return newItem
+    }
+  }
+  return null
+}
+
+function handleRehearsalCheckItems(method, url, data) {
+  const idMatch = url.match(/\/rehearsal-check-items\/(\d+)/)
+  if (idMatch) {
+    const id = parseInt(idMatch[1])
+    const index = rehearsalCheckItems.findIndex(i => i.id === id)
+    if (index === -1) return null
+    if (url.includes('/confirm_accompaniment/')) {
+      rehearsalCheckItems[index] = {
+        ...rehearsalCheckItems[index],
+        accompaniment_confirmed: true,
+        accompaniment_confirmed_by: data.member_id || null
+      }
+      return rehearsalCheckItems[index]
+    }
+    if (url.includes('/set_risk/')) {
+      rehearsalCheckItems[index] = {
+        ...rehearsalCheckItems[index],
+        risk_level: data.risk_level !== undefined ? data.risk_level : rehearsalCheckItems[index].risk_level,
+        teacher_comment: data.teacher_comment !== undefined ? data.teacher_comment : rehearsalCheckItems[index].teacher_comment
+      }
+      return rehearsalCheckItems[index]
+    }
+  }
+  return null
+}
+
+function handleRehearsalCheckConfirmations(method, url, data) {
+  const idMatch = url.match(/\/rehearsal-check-confirmations\/(\d+)/)
+  if (idMatch && method === 'PUT') {
+    const id = parseInt(idMatch[1])
+    for (const item of rehearsalCheckItems) {
+      const idx = item.confirmations.findIndex(c => c.id === id)
+      if (idx !== -1) {
+        item.confirmations[idx] = { ...item.confirmations[idx], ...data }
+        return item.confirmations[idx]
+      }
+    }
+  }
+  return null
+}
+
+function handleRiskActionItems(method, url, data, params) {
+  const idMatch = url.match(/\/risk-action-items\/(\d+)/)
+  if (idMatch) {
+    const id = parseInt(idMatch[1])
+    if (url.includes('/resolve/')) {
+      const index = riskActions.findIndex(a => a.id === id)
+      if (index !== -1) {
+        riskActions[index] = { ...riskActions[index], status: 'resolved', status_display: '已处理' }
+        return riskActions[index]
+      }
+    }
+  } else {
+    if (method === 'GET') {
+      if (params && params.rehearsal_check) {
+        return riskActions.filter(a => a.rehearsal_check === parseInt(params.rehearsal_check))
+      }
+      return [...riskActions]
     }
   }
   return null

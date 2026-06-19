@@ -203,3 +203,116 @@ class Archive(models.Model):
 
     def __str__(self):
         return f'{self.program.name} - v{self.version}'
+
+
+class RehearsalCheck(models.Model):
+    STATUS_CHOICES = [
+        ('open', '进行中'),
+        ('closed', '已关闭'),
+    ]
+    program = models.ForeignKey(Program, on_delete=models.CASCADE, related_name='rehearsal_checks', verbose_name='所属节目')
+    name = models.CharField(max_length=200, verbose_name='批次名称')
+    planned_performance_date = models.DateField(null=True, blank=True, verbose_name='计划演出日期')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open', verbose_name='状态')
+    notes = models.TextField(blank=True, verbose_name='备注')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = '联排确认批次'
+        verbose_name_plural = '联排确认批次'
+
+    def __str__(self):
+        return f'{self.program.name} - {self.name}'
+
+
+class RehearsalCheckItem(models.Model):
+    RISK_CHOICES = [
+        ('none', '无风险'),
+        ('low', '低'),
+        ('medium', '中'),
+        ('high', '高'),
+    ]
+    ROLE_TYPE_CHOICES = Aria.ROLE_TYPE_CHOICES
+    rehearsal_check = models.ForeignKey(RehearsalCheck, on_delete=models.CASCADE, related_name='items', verbose_name='联排批次')
+    aria = models.ForeignKey(Aria, on_delete=models.CASCADE, related_name='rehearsal_check_items', verbose_name='唱段')
+    order_index = models.IntegerField(verbose_name='唱段顺序快照')
+    role_type = models.CharField(max_length=20, choices=ROLE_TYPE_CHOICES, verbose_name='行当快照')
+    accompaniment_required = models.TextField(blank=True, verbose_name='伴奏需求快照')
+    accompaniment_confirmed = models.BooleanField(default=False, verbose_name='伴奏已备齐')
+    accompaniment_confirmed_by = models.ForeignKey(
+        Member, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='accompaniment_confirmations', verbose_name='伴奏确认人'
+    )
+    risk_level = models.CharField(max_length=20, choices=RISK_CHOICES, default='none', verbose_name='风险等级')
+    teacher_comment = models.TextField(blank=True, verbose_name='处理意见')
+    risk_action_created = models.BooleanField(default=False, verbose_name='已生成待处理项')
+    latest_feedback_date = models.DateField(null=True, blank=True, verbose_name='最近反馈日期')
+    latest_start_beat_issue = models.TextField(blank=True, verbose_name='最近起板问题')
+    latest_forgotten_lines = models.TextField(blank=True, verbose_name='最近忘词片段')
+    latest_teacher_comments = models.TextField(blank=True, verbose_name='最近老师点评')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        ordering = ['rehearsal_check', 'order_index']
+        unique_together = ['rehearsal_check', 'aria']
+        verbose_name = '联排确认清单项'
+        verbose_name_plural = '联排确认清单项'
+
+    def __str__(self):
+        return f'{self.rehearsal_check.name} - {self.aria.name}'
+
+
+class RehearsalCheckConfirmation(models.Model):
+    LYRICS_CHOICES = [
+        ('unconfirmed', '未确认'),
+        ('familiar', '熟练'),
+        ('needs_practice', '需练习'),
+    ]
+    check_item = models.ForeignKey(RehearsalCheckItem, on_delete=models.CASCADE, related_name='confirmations', verbose_name='清单项')
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='rehearsal_confirmations', verbose_name='成员')
+    is_understudy = models.BooleanField(default=False, verbose_name='是否替补')
+    attendance_confirmed = models.BooleanField(default=False, verbose_name='到场确认')
+    lyrics_proficiency = models.CharField(max_length=20, choices=LYRICS_CHOICES, default='unconfirmed', verbose_name='歌词熟练度')
+    needs_understudy_help = models.BooleanField(default=False, verbose_name='需要替补协助')
+    note = models.TextField(blank=True, verbose_name='备注')
+    confirmed_at = models.DateTimeField(null=True, blank=True, verbose_name='确认时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        ordering = ['check_item', 'is_understudy', 'id']
+        unique_together = ['check_item', 'member']
+        verbose_name = '联排确认记录'
+        verbose_name_plural = '联排确认记录'
+
+    def __str__(self):
+        return f'{self.check_item.aria.name} - {self.member.name}'
+
+
+class RiskActionItem(models.Model):
+    ACTION_TYPE_CHOICES = [
+        ('attendance', '未确认到场'),
+        ('understudy', '无替补'),
+        ('feedback', '排练反馈问题'),
+        ('accompaniment', '伴奏未确认'),
+        ('teacher_risk', '老师标注风险'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', '待处理'),
+        ('resolved', '已处理'),
+    ]
+    check_item = models.ForeignKey(RehearsalCheckItem, on_delete=models.CASCADE, related_name='risk_actions', verbose_name='清单项')
+    action_type = models.CharField(max_length=20, choices=ACTION_TYPE_CHOICES, verbose_name='待处理类型')
+    description = models.TextField(verbose_name='描述')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='状态')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    resolved_at = models.DateTimeField(null=True, blank=True, verbose_name='处理时间')
+
+    class Meta:
+        ordering = ['-created_at']
+        unique_together = ['check_item', 'action_type']
+        verbose_name = '风险待处理项'
+        verbose_name_plural = '风险待处理项'
+
+    def __str__(self):
+        return f'{self.check_item.aria.name} - {self.get_action_type_display()}'

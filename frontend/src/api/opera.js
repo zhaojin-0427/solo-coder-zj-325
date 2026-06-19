@@ -155,3 +155,53 @@ export function createArchive(data) {
 export function fetchStatistics() {
   return apiRequest('GET', '/statistics/')
 }
+
+export function fetchRehearsalChecks(programId = null) {
+  const params = programId ? { program_id: programId } : null
+  return apiRequest('GET', '/rehearsal-checks/', null, params).then(extractResults)
+}
+
+export function createRehearsalCheck(data) {
+  return apiRequest('POST', '/rehearsal-checks/', data)
+}
+
+export function updateRehearsalCheck(id, data) {
+  return apiRequest('PUT', `/rehearsal-checks/${id}/`, data)
+}
+
+export function deleteRehearsalCheck(id) {
+  return apiRequest('DELETE', `/rehearsal-checks/${id}/`)
+}
+
+export function fetchRehearsalCheckItems(checkId) {
+  return apiRequest('GET', `/rehearsal-checks/${checkId}/items/`)
+}
+
+export function fetchRiskDashboard(checkId) {
+  return apiRequest('GET', `/rehearsal-checks/${checkId}/risk_dashboard/`)
+}
+
+export function generateRiskActions(checkId) {
+  return apiRequest('POST', `/rehearsal-checks/${checkId}/generate_actions/`)
+}
+
+export function confirmAccompaniment(itemId, memberId = null) {
+  return apiRequest('POST', `/rehearsal-check-items/${itemId}/confirm_accompaniment/`, memberId ? { member_id: memberId } : {})
+}
+
+export function setRehearsalCheckItemRisk(itemId, data) {
+  return apiRequest('POST', `/rehearsal-check-items/${itemId}/set_risk/`, data)
+}
+
+export function updateRehearsalCheckConfirmation(id, data) {
+  return apiRequest('PUT', `/rehearsal-check-confirmations/${id}/`, data)
+}
+
+export function fetchRiskActions(checkId = null) {
+  const params = checkId ? { rehearsal_check: checkId } : null
+  return apiRequest('GET', '/risk-action-items/', null, params).then(extractResults)
+}
+
+export function resolveRiskAction(id) {
+  return apiRequest('POST', `/risk-action-items/${id}/resolve/`)
+}

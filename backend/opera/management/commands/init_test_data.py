@@ -5,7 +5,8 @@ import json
 
 from opera.models import (
     Program, Aria, Role, Member, AriaAssignment,
-    Rehearsal, RehearsalFeedback, UnderstudyChange, Archive
+    Rehearsal, RehearsalFeedback, UnderstudyChange, Archive,
+    RehearsalCheck, RehearsalCheckItem, RehearsalCheckConfirmation, RiskActionItem
 )
 
 
@@ -24,6 +25,10 @@ class Command(BaseCommand):
         RehearsalFeedback.objects.all().delete()
         UnderstudyChange.objects.all().delete()
         Archive.objects.all().delete()
+        RehearsalCheck.objects.all().delete()
+        RehearsalCheckItem.objects.all().delete()
+        RehearsalCheckConfirmation.objects.all().delete()
+        RiskActionItem.objects.all().delete()
 
         programs_data = [
             {
@@ -237,6 +242,76 @@ class Command(BaseCommand):
         )
         self.stdout.write(f'  创建归档: {archive.program.name} v{archive.version}')
 
+        second_seed_aria = arias.order_by('order_index')[1] if arias.count() > 1 else None
+        if second_seed_aria:
+            understudy_candidate = next(
+                (m for m in members
+                 if m.is_understudy and not AriaAssignment.objects.filter(aria=second_seed_aria, member=m).exists()),
+                None
+            )
+            if understudy_candidate:
+                matching_understudy_role = roles.filter(role_type=second_seed_aria.role_type).first()
+                AriaAssignment.objects.get_or_create(
+                    aria=second_seed_aria,
+                    member=understudy_candidate,
+                    is_understudy=True,
+                    defaults={'role': matching_understudy_role, 'status': 'confirmed'}
+                )
+
+        check = RehearsalCheck.objects.create(
+            program=program,
+            name=f'{program.name} 演出前联排确认',
+            planned_performance_date=today + timedelta(days=10),
+            status='open',
+            notes='演出前最后一次联排确认，请各负责人尽快完成确认。'
+        )
+        self.stdout.write(f'  创建联排确认批次: {check.name}')
+
+        for aria in arias.order_by('order_index'):
+            latest_fb = RehearsalFeedback.objects.filter(aria=aria).select_related('rehearsal').order_by('-created_at').first()
+            item = RehearsalCheckItem.objects.create(
+                rehearsal_check=check,
+                aria=aria,
+                order_index=aria.order_index,
+                role_type=aria.role_type,
+                accompaniment_required=aria.accompaniment_required,
+                latest_feedback_date=latest_fb.rehearsal.date if latest_fb else None,
+                latest_start_beat_issue=latest_fb.start_beat_issue if latest_fb else '',
+                latest_forgotten_lines=latest_fb.forgotten_lines if latest_fb else '',
+                latest_teacher_comments=latest_fb.teacher_comments if latest_fb else '',
+            )
+            for assignment in AriaAssignment.objects.filter(aria=aria, status='confirmed'):
+                RehearsalCheckConfirmation.objects.create(
+                    check_item=item,
+                    member=assignment.member,
+                    is_understudy=assignment.is_understudy,
+                )
+
+        first_item = check.items.order_by('order_index').first()
+        if first_item:
+            for conf in first_item.confirmations.all():
+                conf.attendance_confirmed = True
+                conf.lyrics_proficiency = 'familiar'
+                conf.save()
+            first_item.accompaniment_confirmed = True
+            first_item.accompaniment_confirmed_by = members[0]
+            first_item.save()
+
+        second_item = check.items.order_by('order_index')[1] if check.items.count() > 1 else None
+        if second_item:
+            second_item.risk_level = 'high'
+            second_item.teacher_comment = '起板问题尚未解决且存在忘词，需重点强化，必要时启用替补。'
+            second_item.risk_action_created = True
+            second_item.save()
+
+        if second_item:
+            RiskActionItem.objects.create(
+                check_item=second_item,
+                action_type='feedback',
+                description='唱段「一霎时把七情俱已昧尽」最近排练反馈仍有问题，需重点强化。',
+                status='pending'
+            )
+
         self.stdout.write(self.style.SUCCESS('测试数据初始化完成！'))
         self.stdout.write(f'  节目: {Program.objects.count()} 个')
         self.stdout.write(f'  唱段: {Aria.objects.count()} 个')
@@ -247,3 +322,7 @@ class Command(BaseCommand):
         self.stdout.write(f'  反馈记录: {RehearsalFeedback.objects.count()} 条')
         self.stdout.write(f'  替补记录: {UnderstudyChange.objects.count()} 条')
         self.stdout.write(f'  归档记录: {Archive.objects.count()} 条')
+        self.stdout.write(f'  联排确认批次: {RehearsalCheck.objects.count()} 个')
+        self.stdout.write(f'  联排清单项: {RehearsalCheckItem.objects.count()} 个')
+        self.stdout.write(f'  联排确认记录: {RehearsalCheckConfirmation.objects.count()} 条')
+        self.stdout.write(f'  风险待处理项: {RiskActionItem.objects.count()} 条')

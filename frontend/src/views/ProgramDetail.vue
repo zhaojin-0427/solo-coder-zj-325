@@ -20,7 +20,7 @@
             <div class="info-item">
               <div class="detail-label">剧种</div>
               <div class="detail-value">
-                <span class="tag active">{{ program.type }}</span>
+                <el-tag type="info">{{ program.type_display || program.type }}</el-tag>
               </div>
             </div>
             <div class="info-item">
@@ -30,9 +30,9 @@
             <div class="info-item">
               <div class="detail-label">状态</div>
               <div class="detail-value">
-                <span :class="['tag', program.status]">
-                  {{ program.status === 'active' ? '进行中' : '已暂停' }}
-                </span>
+                <el-tag :type="programStatusTagType(program.status)">
+                  {{ programStatusText(program.status) }}
+                </el-tag>
               </div>
             </div>
           </div>
@@ -80,6 +80,72 @@
               </el-table-column>
             </el-table>
           </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="联排确认" name="rehearsal">
+          <div class="tab-header">
+            <h3 class="section-title">联排确认批次</h3>
+            <el-button type="primary" size="small" @click="openCheckDialog">
+              <el-icon><Plus /></el-icon>
+              新建联排确认批次
+            </el-button>
+          </div>
+          <div class="opera-card">
+            <el-table :data="programChecks" v-loading="store.loading" stripe empty-text="暂无联排确认批次">
+              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column label="批次名称" min-width="200">
+                <template #default="{ row }">
+                  <el-button type="primary" link @click="goToCheckDetail(row.id)">{{ row.name }}</el-button>
+                </template>
+              </el-table-column>
+              <el-table-column prop="planned_performance_date" label="计划演出日期" width="140" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'open' ? 'warning' : 'info'">{{ row.status_display }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="唱段数" width="90">
+                <template #default="{ row }">
+                  <el-tag type="info">{{ row.item_count }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="风险唱段" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="row.risk_aria_count > 0 ? 'danger' : 'success'">{{ row.risk_aria_count }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="120" fixed="right">
+                <template #default="{ row }">
+                  <el-button type="primary" link @click="goToCheckDetail(row.id)">风险看板</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <el-dialog v-model="checkDialogVisible" title="新建联排确认批次" width="600px">
+            <el-form :model="checkForm" label-width="120px" ref="checkFormRef">
+              <el-alert
+                title="创建后将按该节目当前唱段顺序自动拉取唱段、角色、正式/替补成员、伴奏需求与最近排练反馈，生成联排确认清单。"
+                type="info"
+                :closable="false"
+                show-icon
+                style="margin-bottom: 16px"
+              />
+              <el-form-item label="批次名称" prop="name" :rules="[{ required: true, message: '请输入批次名称', trigger: 'blur' }]">
+                <el-input v-model="checkForm.name" placeholder="如：演出前联排确认" />
+              </el-form-item>
+              <el-form-item label="计划演出日期" prop="planned_performance_date">
+                <el-date-picker v-model="checkForm.planned_performance_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+              </el-form-item>
+              <el-form-item label="备注" prop="notes">
+                <el-input v-model="checkForm.notes" type="textarea" :rows="3" />
+              </el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="checkDialogVisible = false">取消</el-button>
+              <el-button type="primary" @click="submitCheck">确定</el-button>
+            </template>
+          </el-dialog>
         </el-tab-pane>
 
         <el-tab-pane label="角色列表" name="roles">
@@ -193,10 +259,13 @@ const editingAria = ref(null)
 const editingRole = ref(null)
 const ariaFormRef = ref(null)
 const roleFormRef = ref(null)
+const checkDialogVisible = ref(false)
+const checkFormRef = ref(null)
 
 const program = computed(() => store.getProgramById(route.params.id))
 const programArias = computed(() => store.arias.filter(a => a.program === parseInt(route.params.id)))
 const programRoles = computed(() => store.roles.filter(r => r.program === parseInt(route.params.id)))
+const programChecks = computed(() => store.rehearsalChecks.filter(c => c.program === parseInt(route.params.id)))
 
 const ariaForm = reactive({
   order_index: 1,
@@ -213,12 +282,22 @@ const roleForm = reactive({
   description: ''
 })
 
+const checkForm = reactive({
+  name: '',
+  planned_performance_date: '',
+  notes: ''
+})
+
 onMounted(async () => {
   await Promise.all([
     store.loadPrograms(),
     store.loadArias(),
-    store.loadRoles()
+    store.loadRoles(),
+    store.loadRehearsalChecks(parseInt(route.params.id))
   ])
+  if (program.value && !checkForm.name) {
+    checkForm.name = `${program.value.name} 演出前联排确认`
+  }
 })
 
 function openAriaDialog(aria = null) {
@@ -302,6 +381,41 @@ function deleteRole(row) {
     }).catch(() => {})
 }
 
+function openCheckDialog() {
+  Object.assign(checkForm, {
+    name: program.value ? `${program.value.name} 演出前联排确认` : '',
+    planned_performance_date: '',
+    notes: ''
+  })
+  checkDialogVisible.value = true
+}
+
+function goToCheckDetail(id) {
+  router.push(`/rehearsal-checks/${id}`)
+}
+
+async function submitCheck() {
+  try {
+    await checkFormRef.value.validate()
+    const result = await store.addRehearsalCheck({
+      program: parseInt(route.params.id),
+      name: checkForm.name,
+      planned_performance_date: checkForm.planned_performance_date,
+      status: 'open',
+      notes: checkForm.notes
+    })
+    ElMessage.success(`联排批次创建成功，已生成 ${result.item_count || 0} 个唱段确认项`)
+    checkDialogVisible.value = false
+    await store.loadRehearsalChecks(parseInt(route.params.id))
+  } catch (error) {
+    if (error !== false && error?.message) {
+      ElMessage.error('操作失败：' + error.message)
+    } else if (error !== false) {
+      ElMessage.error('操作失败')
+    }
+  }
+}
+
 function getRoleTypeDisplay(roleType) {
   const typeMap = {
     'sheng': '生',
@@ -311,6 +425,26 @@ function getRoleTypeDisplay(roleType) {
     'chou': '丑'
   }
   return typeMap[roleType] || roleType
+}
+
+function programStatusText(status) {
+  const map = {
+    'planning': '筹备',
+    'rehearsing': '排练',
+    'performing': '演出',
+    'archived': '归档'
+  }
+  return map[status] || status
+}
+
+function programStatusTagType(status) {
+  const map = {
+    'planning': 'info',
+    'rehearsing': 'warning',
+    'performing': 'success',
+    'archived': 'danger'
+  }
+  return map[status] || 'info'
 }
 </script>
 

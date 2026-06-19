@@ -9,7 +9,11 @@ import {
   fetchRehearsals, createRehearsal, updateRehearsal, deleteRehearsal,
   fetchFeedbacks, createFeedback, updateFeedback, deleteFeedback,
   fetchUnderstudyChanges, createUnderstudyChange, updateUnderstudyChange,
-  fetchStatistics, fetchArchives, createArchive
+  fetchStatistics, fetchArchives, createArchive,
+  fetchRehearsalChecks, createRehearsalCheck, updateRehearsalCheck, deleteRehearsalCheck,
+  fetchRehearsalCheckItems, fetchRiskDashboard, generateRiskActions,
+  confirmAccompaniment, setRehearsalCheckItemRisk, updateRehearsalCheckConfirmation,
+  fetchRiskActions, resolveRiskAction
 } from '@/api/opera'
 
 export const useOperaStore = defineStore('opera', () => {
@@ -23,11 +27,14 @@ export const useOperaStore = defineStore('opera', () => {
   const understudyChanges = ref([])
   const archives = ref([])
   const statistics = ref(null)
+  const rehearsalChecks = ref([])
+  const riskActions = ref([])
   const loading = ref(false)
 
   const activePrograms = computed(() => programs.value.filter(p => ['planning', 'rehearsing', 'performing'].includes(p.status)))
   const activeAssignments = computed(() => assignments.value.filter(a => a.status === 'confirmed'))
   const pendingUnderstudy = computed(() => understudyChanges.value.filter(u => u.status === 'pending'))
+  const openRehearsalChecks = computed(() => rehearsalChecks.value.filter(c => c.status === 'open'))
 
   async function loadPrograms() {
     loading.value = true
@@ -123,6 +130,79 @@ export const useOperaStore = defineStore('opera', () => {
     const result = await createArchive(data)
     archives.value.push(result)
     return result
+  }
+
+  async function loadRehearsalChecks(programId = null) {
+    loading.value = true
+    try {
+      rehearsalChecks.value = await fetchRehearsalChecks(programId)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function addRehearsalCheck(data) {
+    const result = await createRehearsalCheck(data)
+    rehearsalChecks.value.unshift(result)
+    return result
+  }
+
+  async function editRehearsalCheck(id, data) {
+    const result = await updateRehearsalCheck(id, data)
+    const index = rehearsalChecks.value.findIndex(c => c.id === id)
+    if (index !== -1) rehearsalChecks.value[index] = result
+    return result
+  }
+
+  async function removeRehearsalCheck(id) {
+    await deleteRehearsalCheck(id)
+    rehearsalChecks.value = rehearsalChecks.value.filter(c => c.id !== id)
+  }
+
+  function getRehearsalCheckById(id) {
+    return rehearsalChecks.value.find(c => c.id === parseInt(id))
+  }
+
+  async function getRehearsalCheckItems(checkId) {
+    return await fetchRehearsalCheckItems(checkId)
+  }
+
+  async function getRiskDashboard(checkId) {
+    return await fetchRiskDashboard(checkId)
+  }
+
+  async function runGenerateRiskActions(checkId) {
+    const result = await generateRiskActions(checkId)
+    await loadRiskActions(checkId)
+    return result
+  }
+
+  async function loadRiskActions(checkId = null) {
+    loading.value = true
+    try {
+      riskActions.value = await fetchRiskActions(checkId)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function resolveRiskActionById(id) {
+    const result = await resolveRiskAction(id)
+    const index = riskActions.value.findIndex(a => a.id === id)
+    if (index !== -1) riskActions.value[index] = result
+    return result
+  }
+
+  async function confirmAccompanimentForItem(itemId, memberId = null) {
+    return await confirmAccompaniment(itemId, memberId)
+  }
+
+  async function setItemRisk(itemId, data) {
+    return await setRehearsalCheckItemRisk(itemId, data)
+  }
+
+  async function updateConfirmation(confirmationId, data) {
+    return await updateRehearsalCheckConfirmation(confirmationId, data)
   }
 
   async function addProgram(data) {
@@ -280,8 +360,12 @@ export const useOperaStore = defineStore('opera', () => {
 
   return {
     programs, arias, roles, members, assignments, rehearsals, feedbacks, understudyChanges, archives, statistics, loading,
-    activePrograms, activeAssignments, pendingUnderstudy,
+    rehearsalChecks, riskActions,
+    activePrograms, activeAssignments, pendingUnderstudy, openRehearsalChecks,
     loadPrograms, loadArias, loadRoles, loadMembers, loadAssignments, loadRehearsals, loadFeedbacks, loadUnderstudyChanges, loadStatistics, loadArchives,
+    loadRehearsalChecks, addRehearsalCheck, editRehearsalCheck, removeRehearsalCheck,
+    getRehearsalCheckItems, getRiskDashboard, runGenerateRiskActions, loadRiskActions, resolveRiskActionById,
+    confirmAccompanimentForItem, setItemRisk, updateConfirmation,
     addProgram, editProgram, removeProgram,
     addAria, editAria, removeAria,
     addRole, editRole, removeRole,
@@ -291,6 +375,6 @@ export const useOperaStore = defineStore('opera', () => {
     addFeedback, editFeedback, removeFeedback,
     addUnderstudyChange, editUnderstudyChange,
     addArchive,
-    getProgramById, getRehearsalById
+    getProgramById, getRehearsalById, getRehearsalCheckById
   }
 })

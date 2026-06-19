@@ -10,13 +10,17 @@ import json
 
 from .models import (
     Program, Aria, Role, Member, AriaAssignment,
-    Rehearsal, RehearsalFeedback, UnderstudyChange, Archive
+    Rehearsal, RehearsalFeedback, UnderstudyChange, Archive,
+    RehearsalCheck, RehearsalCheckItem, RehearsalCheckConfirmation, RiskActionItem
 )
 from .serializers import (
     ProgramSerializer, AriaSerializer, RoleSerializer, MemberSerializer,
     AriaAssignmentSerializer, RehearsalSerializer, RehearsalFeedbackSerializer,
     UnderstudyChangeSerializer, ArchiveSerializer,
-    AutoAssignRequestSerializer, AutoAssignResultSerializer
+    AutoAssignRequestSerializer, AutoAssignResultSerializer,
+    RehearsalCheckSerializer, RehearsalCheckItemSerializer,
+    RehearsalCheckConfirmationSerializer, RiskActionItemSerializer,
+    compute_risk_flags, RISK_FLAG_LABELS
 )
 
 
@@ -167,6 +171,241 @@ class ArchiveViewSet(viewsets.ModelViewSet):
         return queryset
 
 
+def build_action_description(item, action_type):
+    aria_name = item.aria.name
+    if action_type == 'attendance':
+        members = [c.member.name for c in item.confirmations.all() if not c.attendance_confirmed]
+        return f'唱段「{aria_name}」存在未确认到场的成员：{"、".join(members)}，需在演出前落实到场。'
+    if action_type == 'understudy':
+        return f'唱段「{aria_name}」暂无替补成员，建议尽快安排替补以防演出风险。'
+    if action_type == 'feedback':
+        detail = []
+        if item.latest_start_beat_issue:
+            detail.append(f'起板问题：{item.latest_start_beat_issue}')
+        if item.latest_forgotten_lines:
+            detail.append(f'忘词片段：{item.latest_forgotten_lines}')
+        return f'唱段「{aria_name}」最近排练反馈仍有问题（{"；".join(detail)}），需重点强化。'
+    if action_type == 'accompaniment':
+        return f'唱段「{aria_name}」伴奏尚未确认备齐（需求：{item.accompaniment_required or "未填写"}），需伴奏负责人落实。'
+    if action_type == 'teacher_risk':
+        return f'唱段「{aria_name}」被老师标注为高风险，处理意见：{item.teacher_comment or "待补充"}。'
+    return f'唱段「{aria_name}」存在待处理风险。'
+
+
+class RehearsalCheckViewSet(viewsets.ModelViewSet):
+    queryset = RehearsalCheck.objects.all()
+    serializer_class = RehearsalCheckSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset().prefetch_related('items__confirmations')
+        program_id = self.request.query_params.get('program_id')
+        if program_id:
+            queryset = queryset.filter(program_id=program_id)
+        status = self.request.query_params.get('status')
+        if status:
+            queryset = queryset.filter(status=status)
+        return queryset
+
+    def perform_create(self, serializer):
+        check = serializer.save()
+        self._generate_checklist(check)
+
+    def _generate_checklist(self, check):
+        arias = Aria.objects.filter(program=check.program).order_by('order_index')
+        for aria in arias:
+            latest_fb = RehearsalFeedback.objects.filter(aria=aria).select_related('rehearsal').order_by('-created_at').first()
+            item = RehearsalCheckItem.objects.create(
+                rehearsal_check=check,
+                aria=aria,
+                order_index=aria.order_index,
+                role_type=aria.role_type,
+                accompaniment_required=aria.accompaniment_required,
+                latest_feedback_date=latest_fb.rehearsal.date if latest_fb else None,
+                latest_start_beat_issue=latest_fb.start_beat_issue if latest_fb else '',
+                latest_forgotten_lines=latest_fb.forgotten_lines if latest_fb else '',
+                latest_teacher_comments=latest_fb.teacher_comments if latest_fb else '',
+            )
+            assignments = AriaAssignment.objects.filter(aria=aria, status='confirmed')
+            for assignment in assignments:
+                RehearsalCheckConfirmation.objects.create(
+                    check_item=item,
+                    member=assignment.member,
+                    is_understudy=assignment.is_understudy,
+                )
+
+    @action(detail=True, methods=['get'])
+    def items(self, request, pk=None):
+        check = self.get_object()
+        items = check.items.prefetch_related('confirmations', 'risk_actions', 'aria', 'accompaniment_confirmed_by').order_by('order_index')
+        serializer = RehearsalCheckItemSerializer(items, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def risk_dashboard(self, request, pk=None):
+        check = self.get_object()
+        items = check.items.prefetch_related('confirmations', 'risk_actions', 'aria').order_by('order_index')
+        risk_items = []
+        flag_counter = defaultdict(int)
+        for item in items:
+            flags = compute_risk_flags(item)
+            if not flags:
+                continue
+            for flag in flags:
+                flag_counter[flag] += 1
+            confirmations = list(item.confirmations.all())
+            unconfirmed_members = [
+                {'id': c.member_id, 'name': c.member.name}
+                for c in confirmations if not c.attendance_confirmed
+            ]
+            risk_items.append({
+                'item_id': item.id,
+                'aria_id': item.aria_id,
+                'aria_name': item.aria.name,
+                'order_index': item.order_index,
+                'role_type': item.role_type,
+                'risk_level': item.risk_level,
+                'risk_level_display': item.get_risk_level_display(),
+                'flags': flags,
+                'flag_labels': [RISK_FLAG_LABELS.get(f, f) for f in flags],
+                'risk_score': len(flags),
+                'has_understudy': any(c.is_understudy for c in confirmations),
+                'unconfirmed_members': unconfirmed_members,
+                'latest_start_beat_issue': item.latest_start_beat_issue,
+                'latest_forgotten_lines': item.latest_forgotten_lines,
+                'latest_feedback_date': item.latest_feedback_date,
+                'accompaniment_confirmed': item.accompaniment_confirmed,
+                'teacher_comment': item.teacher_comment,
+                'risk_action_created': item.risk_action_created,
+            })
+        risk_items.sort(key=lambda x: x['risk_score'], reverse=True)
+        summary = {
+            'total_items': check.items.count(),
+            'risk_aria_count': len(risk_items),
+            'flag_breakdown': [
+                {'action_type': flag, 'label': RISK_FLAG_LABELS.get(flag, flag), 'count': flag_counter[flag]}
+                for flag in ['attendance', 'understudy', 'feedback', 'accompaniment', 'teacher_risk']
+                if flag_counter[flag] > 0
+            ],
+        }
+        return Response({
+            'check_id': check.id,
+            'check_name': check.name,
+            'status': check.status,
+            'risk_items': risk_items,
+            'summary': summary,
+        })
+
+    @action(detail=True, methods=['post'])
+    def generate_actions(self, request, pk=None):
+        check = self.get_object()
+        created_items = []
+        for item in check.items.prefetch_related('confirmations', 'aria').all():
+            flags = compute_risk_flags(item)
+            for flag in flags:
+                description = build_action_description(item, flag)
+                obj, created = RiskActionItem.objects.get_or_create(
+                    check_item=item,
+                    action_type=flag,
+                    defaults={'description': description},
+                )
+                if created:
+                    created_items.append({
+                        'id': obj.id,
+                        'check_item': item.id,
+                        'aria_name': item.aria.name,
+                        'action_type': flag,
+                        'description': description,
+                    })
+            if flags:
+                item.risk_action_created = True
+                item.save(update_fields=['risk_action_created'])
+        return Response({
+            'created_count': len(created_items),
+            'items': created_items,
+        })
+
+
+class RehearsalCheckItemViewSet(viewsets.ModelViewSet):
+    queryset = RehearsalCheckItem.objects.all()
+    serializer_class = RehearsalCheckItemSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset().prefetch_related('confirmations', 'risk_actions', 'aria', 'accompaniment_confirmed_by')
+        rehearsal_check = self.request.query_params.get('rehearsal_check')
+        if rehearsal_check:
+            queryset = queryset.filter(rehearsal_check_id=rehearsal_check)
+        aria_id = self.request.query_params.get('aria_id')
+        if aria_id:
+            queryset = queryset.filter(aria_id=aria_id)
+        return queryset
+
+    @action(detail=True, methods=['post'])
+    def confirm_accompaniment(self, request, pk=None):
+        item = self.get_object()
+        member_id = request.data.get('member_id')
+        member = Member.objects.filter(id=member_id).first() if member_id else None
+        item.accompaniment_confirmed = True
+        item.accompaniment_confirmed_by = member
+        item.save(update_fields=['accompaniment_confirmed', 'accompaniment_confirmed_by'])
+        return Response(RehearsalCheckItemSerializer(item).data)
+
+    @action(detail=True, methods=['post'])
+    def set_risk(self, request, pk=None):
+        item = self.get_object()
+        if 'risk_level' in request.data:
+            item.risk_level = request.data['risk_level']
+        if 'teacher_comment' in request.data:
+            item.teacher_comment = request.data['teacher_comment']
+        item.save(update_fields=['risk_level', 'teacher_comment'])
+        return Response(RehearsalCheckItemSerializer(item).data)
+
+
+class RehearsalCheckConfirmationViewSet(viewsets.ModelViewSet):
+    queryset = RehearsalCheckConfirmation.objects.all()
+    serializer_class = RehearsalCheckConfirmationSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related('member')
+        check_item = self.request.query_params.get('check_item')
+        if check_item:
+            queryset = queryset.filter(check_item_id=check_item)
+        member_id = self.request.query_params.get('member_id')
+        if member_id:
+            queryset = queryset.filter(member_id=member_id)
+        return queryset
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        attendance = instance.attendance_confirmed
+        lyrics = instance.lyrics_proficiency
+        if attendance and lyrics != 'unconfirmed':
+            instance.confirmed_at = timezone.now()
+            instance.save(update_fields=['confirmed_at'])
+
+
+class RiskActionItemViewSet(viewsets.ModelViewSet):
+    queryset = RiskActionItem.objects.all()
+    serializer_class = RiskActionItemSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related('check_item__aria')
+        rehearsal_check = self.request.query_params.get('rehearsal_check')
+        if rehearsal_check:
+            queryset = queryset.filter(check_item__rehearsal_check_id=rehearsal_check)
+        status = self.request.query_params.get('status')
+        if status:
+            queryset = queryset.filter(status=status)
+        return queryset
+
+    @action(detail=True, methods=['post'])
+    def resolve(self, request, pk=None):
+        action = self.get_object()
+        action.status = 'resolved'
+        action.resolved_at = timezone.now()
+        action.save(update_fields=['status', 'resolved_at'])
+        return Response(RiskActionItemSerializer(action).data)
+
+
 class StatisticsView(APIView):
     def get(self, request):
         data = {}
@@ -244,6 +483,45 @@ class StatisticsView(APIView):
         status_counts = Program.objects.values('status').annotate(count=Count('id'))
         data['program_status_distribution'] = {
             item['status']: item['count'] for item in status_counts
+        }
+
+        open_checks = RehearsalCheck.objects.filter(status='open').select_related('program')
+        open_check_list = list(open_checks)
+        risk_aria_total = 0
+        flag_counter = defaultdict(int)
+        program_risk = defaultdict(lambda: {'program_id': None, 'program_name': '', 'risk_aria_count': 0, 'open_check_count': 0})
+        for check in open_check_list:
+            prog_key = check.program_id
+            program_risk[prog_key]['program_id'] = prog_key
+            program_risk[prog_key]['program_name'] = check.program.name
+            program_risk[prog_key]['open_check_count'] += 1
+            for item in check.items.prefetch_related('confirmations').all():
+                flags = compute_risk_flags(item)
+                if flags:
+                    risk_aria_total += 1
+                    program_risk[prog_key]['risk_aria_count'] += 1
+                    for flag in flags:
+                        flag_counter[flag] += 1
+
+        risk_action_breakdown = RiskActionItem.objects.values('action_type').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        pending_risk_actions = RiskActionItem.objects.filter(status='pending').count()
+
+        data['pre_performance_risk'] = {
+            'open_check_count': len(open_check_list),
+            'risk_aria_count': risk_aria_total,
+            'pending_risk_actions': pending_risk_actions,
+            'flag_breakdown': [
+                {'action_type': flag, 'label': RISK_FLAG_LABELS.get(flag, flag), 'count': flag_counter[flag]}
+                for flag in ['attendance', 'understudy', 'feedback', 'accompaniment', 'teacher_risk']
+                if flag_counter[flag] > 0
+            ],
+            'risk_action_breakdown': [
+                {'action_type': item['action_type'], 'label': dict(RiskActionItem.ACTION_TYPE_CHOICES).get(item['action_type'], item['action_type']), 'count': item['count']}
+                for item in risk_action_breakdown
+            ],
+            'program_risk': sorted(program_risk.values(), key=lambda x: x['risk_aria_count'], reverse=True),
         }
 
         return Response(data)

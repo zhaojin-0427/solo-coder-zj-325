@@ -5,6 +5,8 @@ from .views import (
     ProgramViewSet, AriaViewSet, RoleViewSet, MemberViewSet,
     AriaAssignmentViewSet, RehearsalViewSet, RehearsalFeedbackViewSet,
     UnderstudyChangeViewSet, ArchiveViewSet,
+    RehearsalCheckViewSet, RehearsalCheckItemViewSet,
+    RehearsalCheckConfirmationViewSet, RiskActionItemViewSet,
     StatisticsView, AutoAssignView, ApplyAutoAssignView
 )
 
@@ -18,6 +20,10 @@ router.register(r'rehearsals', RehearsalViewSet)
 router.register(r'rehearsal-feedbacks', RehearsalFeedbackViewSet)
 router.register(r'understudy-changes', UnderstudyChangeViewSet)
 router.register(r'archives', ArchiveViewSet)
+router.register(r'rehearsal-checks', RehearsalCheckViewSet)
+router.register(r'rehearsal-check-items', RehearsalCheckItemViewSet)
+router.register(r'rehearsal-check-confirmations', RehearsalCheckConfirmationViewSet)
+router.register(r'risk-action-items', RiskActionItemViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

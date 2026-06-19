@@ -48,6 +48,18 @@ const routes = [
         meta: { title: '替补调整' }
       },
       {
+        path: 'rehearsal-checks',
+        name: 'RehearsalChecks',
+        component: () => import('@/views/RehearsalCheck.vue'),
+        meta: { title: '联排确认' }
+      },
+      {
+        path: 'rehearsal-checks/:id',
+        name: 'RehearsalCheckDetail',
+        component: () => import('@/views/RehearsalCheckDetail.vue'),
+        meta: { title: '联排确认详情' }
+      },
+      {
         path: 'statistics',
         name: 'Statistics',
         component: () => import('@/views/Statistics.vue'),
