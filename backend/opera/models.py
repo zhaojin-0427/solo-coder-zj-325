@@ -271,6 +271,8 @@ class RehearsalCheckConfirmation(models.Model):
     ]
     check_item = models.ForeignKey(RehearsalCheckItem, on_delete=models.CASCADE, related_name='confirmations', verbose_name='清单项')
     member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='rehearsal_confirmations', verbose_name='成员')
+    role = models.ForeignKey(Role, on_delete=models.SET_NULL, null=True, blank=True, related_name='rehearsal_confirmations', verbose_name='角色')
+    role_name = models.CharField(max_length=100, blank=True, verbose_name='角色名称快照')
     is_understudy = models.BooleanField(default=False, verbose_name='是否替补')
     attendance_confirmed = models.BooleanField(default=False, verbose_name='到场确认')
     lyrics_proficiency = models.CharField(max_length=20, choices=LYRICS_CHOICES, default='unconfirmed', verbose_name='歌词熟练度')

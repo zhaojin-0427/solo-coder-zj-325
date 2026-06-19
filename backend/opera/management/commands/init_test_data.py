@@ -280,10 +280,12 @@ class Command(BaseCommand):
                 latest_forgotten_lines=latest_fb.forgotten_lines if latest_fb else '',
                 latest_teacher_comments=latest_fb.teacher_comments if latest_fb else '',
             )
-            for assignment in AriaAssignment.objects.filter(aria=aria, status='confirmed'):
+            for assignment in AriaAssignment.objects.filter(aria=aria, status='confirmed').select_related('role'):
                 RehearsalCheckConfirmation.objects.create(
                     check_item=item,
                     member=assignment.member,
+                    role=assignment.role,
+                    role_name=assignment.role.name if assignment.role else '',
                     is_understudy=assignment.is_understudy,
                 )
 

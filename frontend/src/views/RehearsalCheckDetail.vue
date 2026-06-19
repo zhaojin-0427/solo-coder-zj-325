@@ -82,10 +82,16 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="未确认成员" min-width="160">
+        <el-table-column label="未确认成员" min-width="200">
           <template #default="{ row }">
             <span v-if="!row.unconfirmed_members.length" class="muted">-</span>
-            <span v-else>{{ row.unconfirmed_members.map(m => m.name).join('、') }}</span>
+            <span v-else>
+              <span v-for="(m, idx) in row.unconfirmed_members" :key="m.id">
+                {{ m.name }}
+                <span v-if="m.role_name" class="muted">（{{ m.role_name }}）</span>
+                <span v-if="idx < row.unconfirmed_members.length - 1">、</span>
+              </span>
+            </span>
           </template>
         </el-table-column>
         <el-table-column label="最近反馈问题" min-width="220">
@@ -163,6 +169,12 @@
               <div class="confirm-table-wrap">
                 <el-table :data="item.confirmations" size="small" border>
                   <el-table-column prop="member_name" label="成员" min-width="100" />
+                  <el-table-column prop="role_name" label="角色" min-width="100">
+                    <template #default="{ row }">
+                      <span class="muted" v-if="!row.role_name">-</span>
+                      <span v-else>{{ row.role_name }}</span>
+                    </template>
+                  </el-table-column>
                   <el-table-column label="类型" width="80">
                     <template #default="{ row }">
                       <el-tag size="small" :type="row.is_understudy ? 'warning' : 'danger'" effect="plain">

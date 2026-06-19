@@ -207,6 +207,10 @@ class RehearsalCheckViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
+        program = serializer.validated_data.get('program')
+        if program.status == 'archived':
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'program': '已归档的节目不能创建联排确认批次'})
         check = serializer.save()
         self._generate_checklist(check)
 
@@ -225,11 +229,13 @@ class RehearsalCheckViewSet(viewsets.ModelViewSet):
                 latest_forgotten_lines=latest_fb.forgotten_lines if latest_fb else '',
                 latest_teacher_comments=latest_fb.teacher_comments if latest_fb else '',
             )
-            assignments = AriaAssignment.objects.filter(aria=aria, status='confirmed')
+            assignments = AriaAssignment.objects.filter(aria=aria, status='confirmed').select_related('role')
             for assignment in assignments:
                 RehearsalCheckConfirmation.objects.create(
                     check_item=item,
                     member=assignment.member,
+                    role=assignment.role,
+                    role_name=assignment.role.name if assignment.role else '',
                     is_understudy=assignment.is_understudy,
                 )
 
@@ -254,7 +260,7 @@ class RehearsalCheckViewSet(viewsets.ModelViewSet):
                 flag_counter[flag] += 1
             confirmations = list(item.confirmations.all())
             unconfirmed_members = [
-                {'id': c.member_id, 'name': c.member.name}
+                {'id': c.member_id, 'name': c.member.name, 'role_name': c.role_name or ''}
                 for c in confirmations if not c.attendance_confirmed
             ]
             risk_items.append({

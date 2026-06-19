@@ -132,7 +132,7 @@ const formData = reactive({
   notes: ''
 })
 
-const editablePrograms = computed(() => store.programs)
+const editablePrograms = computed(() => store.programs.filter(p => p.status !== 'archived'))
 const filteredChecks = computed(() => {
   let list = store.rehearsalChecks
   if (filterProgram.value) list = list.filter(c => c.program === filterProgram.value)
