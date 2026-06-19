@@ -34,14 +34,13 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import {
-  HomeFilled,
-  Grid,
-  User,
-  Calendar,
-  Switch,
-  CircleCheck,
-  DataAnalysis
+import { 
+  HomeFilled, 
+  Grid, 
+  User, 
+  Calendar, 
+  Switch, 
+  DataAnalysis 
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -52,7 +51,6 @@ const menuItems = [
   { path: '/assignments', label: '唱段分配', icon: User },
   { path: '/rehearsals', label: '排练记录', icon: Calendar },
   { path: '/understudy', label: '替补调整', icon: Switch },
-  { path: '/rehearsal-checks', label: '联排确认', icon: CircleCheck },
   { path: '/statistics', label: '统计分析', icon: DataAnalysis }
 ]
 

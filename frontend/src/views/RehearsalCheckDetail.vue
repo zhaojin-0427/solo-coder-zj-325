@@ -54,19 +54,9 @@
     <div class="opera-card">
       <div class="section-head">
         <h3 class="section-title">风险看板</h3>
-        <div class="risk-tabs">
-          <el-radio-group v-model="riskTab" size="small">
-            <el-radio-button value="active">当前仍存在风险</el-radio-button>
-            <el-radio-button value="history">历史已解除风险</el-radio-button>
-          </el-radio-group>
-        </div>
+        <el-tag type="danger">按风险分值排序</el-tag>
       </div>
-      <el-table 
-        :data="riskTab === 'active' ? activeRiskItems : historyRiskItems" 
-        v-loading="loading" 
-        stripe 
-        empty-text="暂无风险唱段，状态良好"
-      >
+      <el-table :data="dashboard?.risk_items || []" v-loading="loading" stripe empty-text="暂无风险唱段，状态良好">
         <el-table-column prop="order_index" label="序号" width="70" />
         <el-table-column prop="aria_name" label="唱段" min-width="160" />
         <el-table-column label="风险等级" width="110">
@@ -246,10 +236,6 @@
                   <span class="detail-label">老师标注风险</span>
                   <el-button size="small" type="warning" :icon="Edit" @click="openRiskDialog(item)">标注 / 修改</el-button>
                 </div>
-                <div class="action-group">
-                  <span class="detail-label">风险复核</span>
-                  <el-button size="small" type="info" :icon="Refresh" @click="reviewItemRisks(item)">复核风险</el-button>
-                </div>
               </div>
             </div>
           </el-collapse-item>
@@ -260,110 +246,31 @@
     <div class="opera-card">
       <div class="section-head">
         <h3 class="section-title">待处理风险项</h3>
-        <div class="risk-actions-tabs">
-          <el-radio-group v-model="actionTab" size="small">
-            <el-radio-button value="active">待处理</el-radio-button>
-            <el-radio-button value="history">历史已解除</el-radio-button>
-          </el-radio-group>
-        </div>
+        <span class="muted">已生成 {{ pendingActions.length }} 项待处理</span>
       </div>
-      <el-table 
-        :data="actionTab === 'active' ? activeActions : historyActions" 
-        v-loading="loading" 
-        stripe 
-        empty-text="暂无记录"
-      >
+      <el-table :data="store.riskActions" v-loading="loading" stripe empty-text="暂无待处理项，可点击「一键生成待处理项」">
         <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column prop="aria_name" label="唱段" min-width="140" />
+        <el-table-column prop="aria_name" label="唱段" min-width="160" />
         <el-table-column label="类型" width="140">
           <template #default="{ row }">
             <el-tag :type="flagTagType(row.action_type)" effect="plain">{{ row.action_type_display }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="description" label="说明" min-width="200" show-overflow-tooltip />
-        <el-table-column label="最新原因" min-width="200" show-overflow-tooltip>
+        <el-table-column prop="description" label="说明" min-width="280" show-overflow-tooltip />
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <span v-if="row.latest_reason" class="danger-text">{{ row.latest_reason }}</span>
-            <span v-else class="muted">-</span>
+            <el-tag :type="row.status === 'pending' ? 'danger' : 'success'">{{ row.status_display }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="处理人" width="100">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <span v-if="row.handler_name">{{ row.handler_name }}</span>
-            <span v-else class="muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="处理备注" min-width="140" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span v-if="row.handler_note">{{ row.handler_note }}</span>
-            <span v-else class="muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="解除来源" width="130">
-          <template #default="{ row }">
-            <span v-if="row.resolution_source_display">
-              <el-tag size="small" type="info">{{ row.resolution_source_display }}</el-tag>
-            </span>
-            <span v-else class="muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="130">
-          <template #default="{ row }">
-            <div class="status-wrap">
-              <el-tag :type="getStatusType(row.status)" :effect="row.auto_resolve_pending ? 'dark' : 'plain'">
-                {{ getStatusDisplay(row) }}
-              </el-tag>
-              <el-tag v-if="row.auto_resolve_pending" size="small" type="warning" effect="dark">待确认</el-tag>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="处理时长" width="100">
-          <template #default="{ row }">
-            <span v-if="row.processing_duration !== null">{{ row.processing_duration }}h</span>
-            <span v-else class="muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="创建时间" width="160">
-          <template #default="{ row }">
-            <span class="muted">{{ formatTime(row.created_at) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="处理时间" width="160">
-          <template #default="{ row }">
-            <span class="muted">{{ formatTime(row.resolved_at) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <div class="action-buttons">
-              <el-button
-                v-if="row.status === 'pending'"
-                type="success"
-                link
-                size="small"
-                @click="openHandlerDialog(row, 'resolve')"
-              >标记已处理</el-button>
-              <el-button
-                v-if="row.auto_resolve_pending"
-                type="success"
-                link
-                size="small"
-                @click="openHandlerDialog(row, 'confirm')"
-              >确认关闭</el-button>
-              <el-button
-                v-if="row.auto_resolve_pending"
-                type="danger"
-                link
-                size="small"
-                @click="rejectAutoResolve(row)"
-              >拒绝解除</el-button>
-              <el-button
-                type="primary"
-                link
-                size="small"
-                @click="openHandlerDialog(row, 'handler')"
-              >设置处理人</el-button>
-            </div>
+            <el-button
+              v-if="row.status === 'pending'"
+              type="success"
+              link
+              @click="handleResolve(row)"
+            >标记已处理</el-button>
+            <span v-else class="muted">{{ formatTime(row.resolved_at) }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -391,31 +298,6 @@
         <el-button type="primary" @click="submitRisk">保存</el-button>
       </template>
     </el-dialog>
-
-    <el-dialog v-model="handlerDialogVisible" :title="handlerDialogTitle" width="520px">
-      <el-form :model="handlerForm" label-width="100px">
-        <el-form-item label="风险项">
-          <span>{{ handlerForm.aria_name }} - {{ handlerForm.action_type_display }}</span>
-        </el-form-item>
-        <el-form-item label="处理人" v-if="handlerDialogType !== 'reject'">
-          <el-select v-model="handlerForm.handler_id" placeholder="请选择处理人" filterable>
-            <el-option
-              v-for="member in store.members"
-              :key="member.id"
-              :label="member.name"
-              :value="member.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="handlerDialogType === 'reject' ? '拒绝原因' : '处理备注'">
-          <el-input v-model="handlerForm.handler_note" type="textarea" :rows="4" :placeholder="handlerDialogType === 'reject' ? '请输入拒绝解除的原因' : '请输入处理备注'" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="handlerDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitHandlerAction">{{ handlerDialogType === 'resolve' ? '标记已处理' : handlerDialogType === 'confirm' ? '确认关闭' : handlerDialogType === 'reject' ? '提交' : '保存' }}</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -440,9 +322,6 @@ const dashboard = ref(null)
 const loading = ref(false)
 const generating = ref(false)
 const activeCollapse = ref([])
-const riskTab = ref('active')
-const actionTab = ref('active')
-const historyActions = ref([])
 
 const riskDialogVisible = ref(false)
 const riskForm = reactive({
@@ -452,43 +331,11 @@ const riskForm = reactive({
   teacher_comment: ''
 })
 
-const handlerDialogVisible = ref(false)
-const handlerDialogType = ref('')
-const handlerForm = reactive({
-  riskId: null,
-  aria_name: '',
-  action_type_display: '',
-  handler_id: null,
-  handler_note: ''
-})
-
-const handlerDialogTitle = computed(() => {
-  const titles = {
-    resolve: '标记风险已处理',
-    confirm: '确认关闭风险',
-    handler: '设置处理人',
-    reject: '拒绝自动解除'
-  }
-  return titles[handlerDialogType.value] || '处理风险'
-})
-
-const activeRiskItems = computed(() => {
-  if (!dashboard.value) return []
-  return dashboard.value.risk_items.filter(item => item.has_active_risks)
-})
-
-const historyRiskItems = computed(() => {
-  if (!dashboard.value) return []
-  return dashboard.value.risk_items.filter(item => !item.has_active_risks)
-})
-
-const activeActions = computed(() => store.riskActions.filter(a => a.is_active))
 const pendingActions = computed(() => store.riskActions.filter(a => a.status === 'pending'))
 
 onMounted(async () => {
   await store.loadPrograms()
   await store.loadRehearsalChecks()
-  await store.loadMembers()
   await loadAll()
 })
 
@@ -508,7 +355,6 @@ async function loadAll() {
     loading.value = false
   }
   await store.loadRiskActions(route.params.id)
-  historyActions.value = await store.loadHistoryRisks(route.params.id)
 }
 
 function flagCount(actionType) {
@@ -542,48 +388,9 @@ function riskTagType(level) {
   return map[level] || 'info'
 }
 
-function getStatusType(status) {
-  const map = {
-    pending: 'danger',
-    auto_resolved: 'warning',
-    manually_resolved: 'success',
-    confirmed_closed: 'success'
-  }
-  return map[status] || 'info'
-}
-
-function getStatusDisplay(row) {
-  const statusMap = {
-    pending: '待处理',
-    auto_resolved: '自动解除',
-    manually_resolved: '手动解除',
-    confirmed_closed: '已确认关闭'
-  }
-  return statusMap[row.status] || row.status
-}
-
 function formatTime(value) {
   if (!value) return '-'
   return value.replace('T', ' ').substring(0, 16)
-}
-
-function handleRiskReviewResults(results) {
-  if (!results || results.length === 0) return
-  
-  const created = results.filter(r => r.action === 'created')
-  if (created.length > 0) {
-    ElMessage.info(`新增 ${created.length} 项风险待处理项`)
-  }
-  
-  const autoResolved = results.filter(r => r.action === 'suggest_auto_resolve')
-  if (autoResolved.length > 0) {
-    ElMessage.success(`系统自动复核发现 ${autoResolved.length} 项风险已解除，待管理员确认`)
-  }
-  
-  const keptPending = results.filter(r => r.action === 'keep_pending')
-  if (keptPending.length > 0) {
-    ElMessage.info(`${keptPending.length} 项风险仍然存在，已更新最新原因`)
-  }
 }
 
 async function updateConfirmationField(confirmation, field, value) {
@@ -598,11 +405,6 @@ async function updateConfirmationField(confirmation, field, value) {
       const idx = item.confirmations.findIndex(c => c.id === confirmation.id)
       if (idx !== -1) item.confirmations[idx] = { ...item.confirmations[idx], ...updated }
     }
-    
-    if (updated.risk_review_results) {
-      handleRiskReviewResults(updated.risk_review_results)
-    }
-    
     ElMessage.success('确认已更新')
     await refreshDashboard()
   } catch (e) {
@@ -615,26 +417,10 @@ async function confirmAccompaniment(item) {
     const updated = await store.confirmAccompanimentForItem(item.id)
     const idx = items.value.findIndex(i => i.id === item.id)
     if (idx !== -1) items.value[idx] = { ...items.value[idx], ...updated }
-    
-    if (updated.risk_review_results) {
-      handleRiskReviewResults(updated.risk_review_results)
-    }
-    
     ElMessage.success('伴奏确认成功')
     await refreshDashboard()
   } catch (e) {
     ElMessage.error('伴奏确认失败')
-  }
-}
-
-async function reviewItemRisks(item) {
-  try {
-    const result = await store.reviewRisksForItem(item.id)
-    handleRiskReviewResults(result.results)
-    ElMessage.success(`已复核 ${result.reviewed_count} 项风险`)
-    await refreshDashboard()
-  } catch (e) {
-    ElMessage.error('复核失败')
   }
 }
 
@@ -654,80 +440,11 @@ async function submitRisk() {
     })
     const idx = items.value.findIndex(i => i.id === riskForm.itemId)
     if (idx !== -1) items.value[idx] = { ...items.value[idx], ...updated }
-    
-    if (updated.risk_review_results) {
-      handleRiskReviewResults(updated.risk_review_results)
-    }
-    
     ElMessage.success('风险标注已保存')
     riskDialogVisible.value = false
     await refreshDashboard()
   } catch (e) {
     ElMessage.error('保存失败')
-  }
-}
-
-function openHandlerDialog(row, type) {
-  handlerDialogType.value = type
-  handlerForm.riskId = row.id
-  handlerForm.aria_name = row.aria_name
-  handlerForm.action_type_display = row.action_type_display
-  handlerForm.handler_id = row.handler || null
-  handlerForm.handler_note = row.handler_note || ''
-  handlerDialogVisible.value = true
-}
-
-async function submitHandlerAction() {
-  try {
-    let result
-    if (handlerDialogType.value === 'resolve') {
-      result = await store.resolveRiskActionById(
-        handlerForm.riskId,
-        handlerForm.handler_id,
-        handlerForm.handler_note
-      )
-      ElMessage.success('已标记为已处理')
-    } else if (handlerDialogType.value === 'confirm') {
-      result = await store.confirmCloseRiskActionById(
-        handlerForm.riskId,
-        handlerForm.handler_id,
-        handlerForm.handler_note
-      )
-      ElMessage.success('已确认关闭')
-    } else if (handlerDialogType.value === 'handler') {
-      result = await store.updateRiskActionHandlerById(
-        handlerForm.riskId,
-        handlerForm.handler_id,
-        handlerForm.handler_note
-      )
-      ElMessage.success('处理人已更新')
-    }
-    
-    const idx = store.riskActions.findIndex(a => a.id === handlerForm.riskId)
-    if (idx !== -1) store.riskActions[idx] = { ...store.riskActions[idx], ...result }
-    
-    handlerDialogVisible.value = false
-    await refreshDashboard()
-  } catch (e) {
-    ElMessage.error('操作失败')
-  }
-}
-
-async function rejectAutoResolve(row) {
-  try {
-    await ElMessageBox.prompt('请输入拒绝解除的原因', '拒绝确认', {
-      confirmButtonText: '确认拒绝',
-      cancelButtonText: '取消',
-      inputType: 'textarea',
-      inputPlaceholder: '请说明拒绝解除的原因...',
-      type: 'warning'
-    }).then(async ({ value: note }) => {
-      await store.rejectAutoResolveById(row.id, note)
-      ElMessage.success('已拒绝自动解除，风险重新标记为待处理')
-      await refreshDashboard()
-    }).catch(() => {})
-  } catch (e) {
-    ElMessage.error('操作失败')
   }
 }
 
@@ -745,14 +462,17 @@ async function handleGenerateActions() {
 }
 
 async function handleResolve(action) {
-  openHandlerDialog(action, 'resolve')
+  ElMessageBox.confirm(`确定将「${action.aria_name} - ${action.action_type_display}」标记为已处理？`, '处理确认', { type: 'success' })
+    .then(async () => {
+      await store.resolveRiskActionById(action.id)
+      ElMessage.success('已标记为已处理')
+    }).catch(() => {})
 }
 
 async function refreshDashboard() {
   dashboard.value = await store.getRiskDashboard(route.params.id)
   await store.loadRehearsalChecks()
   await store.loadRiskActions(route.params.id)
-  historyActions.value = await store.loadHistoryRisks(route.params.id)
 }
 </script>
 
@@ -793,17 +513,8 @@ async function refreshDashboard() {
   }
 }
 
-.risk-tabs, .risk-actions-tabs {
-  margin-left: auto;
-}
-
 .muted {
   color: #999;
-  font-size: 12px;
-}
-
-.danger-text {
-  color: #C41E3A;
   font-size: 12px;
 }
 
@@ -858,17 +569,5 @@ async function refreshDashboard() {
     flex-direction: column;
     gap: 6px;
   }
-}
-
-.status-wrap {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.action-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 </style>

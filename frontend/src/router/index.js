@@ -48,34 +48,10 @@ const routes = [
         meta: { title: '替补调整' }
       },
       {
-        path: 'rehearsal-checks',
-        name: 'RehearsalChecks',
-        component: () => import('@/views/RehearsalCheck.vue'),
-        meta: { title: '联排确认' }
-      },
-      {
-        path: 'rehearsal-checks/:id',
-        name: 'RehearsalCheckDetail',
-        component: () => import('@/views/RehearsalCheckDetail.vue'),
-        meta: { title: '联排确认详情' }
-      },
-      {
         path: 'statistics',
         name: 'Statistics',
         component: () => import('@/views/Statistics.vue'),
         meta: { title: '统计分析' }
-      },
-      {
-        path: 'performance-reviews',
-        name: 'PerformanceReviews',
-        component: () => import('@/views/PerformanceReviews.vue'),
-        meta: { title: '演出复盘' }
-      },
-      {
-        path: 'performance-reviews/:id',
-        name: 'PerformanceReviewDetail',
-        component: () => import('@/views/PerformanceReviewDetail.vue'),
-        meta: { title: '复盘详情' }
       }
     ]
   }

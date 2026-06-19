@@ -311,26 +311,7 @@ class Command(BaseCommand):
                 check_item=second_item,
                 action_type='feedback',
                 description='唱段「一霎时把七情俱已昧尽」最近排练反馈仍有问题，需重点强化。',
-                latest_reason='唱段「一霎时把七情俱已昧尽」仍存在排练反馈问题（忘词片段：第二段第2句忘词）。',
-                status='pending',
-                handler=members[0],
-                handler_note='已安排额外排练时间'
-            )
-
-        third_item = check.items.order_by('order_index')[2] if check.items.count() > 2 else None
-        if third_item:
-            RiskActionItem.objects.create(
-                check_item=third_item,
-                action_type='attendance',
-                description='唱段「这才是今生难预料」存在未确认到场的成员，需在演出前落实到场。',
-                latest_reason='',
-                status='auto_resolved',
-                auto_resolve_pending=True,
-                auto_resolve_suggested_at=timezone.now(),
-                resolved_at=timezone.now(),
-                resolution_source='attendance_confirm',
-                handler=members[1],
-                handler_note='所有成员已确认到场'
+                status='pending'
             )
 
         self.stdout.write(self.style.SUCCESS('测试数据初始化完成！'))
