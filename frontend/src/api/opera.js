@@ -197,11 +197,48 @@ export function updateRehearsalCheckConfirmation(id, data) {
   return apiRequest('PUT', `/rehearsal-check-confirmations/${id}/`, data)
 }
 
-export function fetchRiskActions(checkId = null) {
-  const params = checkId ? { rehearsal_check: checkId } : null
-  return apiRequest('GET', '/risk-action-items/', null, params).then(extractResults)
+export function fetchRiskActions(checkId = null, isActive = null) {
+  const params = {}
+  if (checkId) params.rehearsal_check = checkId
+  if (isActive !== null) params.is_active = isActive
+  return apiRequest('GET', '/risk-action-items/', null, Object.keys(params).length ? params : null).then(extractResults)
 }
 
-export function resolveRiskAction(id) {
-  return apiRequest('POST', `/risk-action-items/${id}/resolve/`)
+export function resolveRiskAction(id, handlerId = null, handlerNote = '') {
+  const data = {}
+  if (handlerId) data.handler_id = handlerId
+  if (handlerNote) data.handler_note = handlerNote
+  return apiRequest('POST', `/risk-action-items/${id}/resolve/`, data)
+}
+
+export function confirmCloseRiskAction(id, handlerId = null, handlerNote = '') {
+  const data = {}
+  if (handlerId) data.handler_id = handlerId
+  if (handlerNote) data.handler_note = handlerNote
+  return apiRequest('POST', `/risk-action-items/${id}/confirm_close/`, data)
+}
+
+export function rejectAutoResolve(id, handlerNote = '') {
+  return apiRequest('POST', `/risk-action-items/${id}/reject_auto_resolve/`, { handler_note: handlerNote })
+}
+
+export function updateRiskActionHandler(id, handlerId = null, handlerNote = '') {
+  const data = {}
+  if (handlerId) data.handler_id = handlerId
+  if (handlerNote) data.handler_note = handlerNote
+  return apiRequest('POST', `/risk-action-items/${id}/update_handler/`, data)
+}
+
+export function fetchActiveRisks(checkId = null) {
+  const params = checkId ? { rehearsal_check: checkId } : null
+  return apiRequest('GET', '/risk-action-items/active_risks/', null, params).then(extractResults)
+}
+
+export function fetchHistoryRisks(checkId = null) {
+  const params = checkId ? { rehearsal_check: checkId } : null
+  return apiRequest('GET', '/risk-action-items/history_risks/', null, params).then(extractResults)
+}
+
+export function reviewItemRisks(itemId) {
+  return apiRequest('POST', `/rehearsal-check-items/${itemId}/review_risks/`)
 }

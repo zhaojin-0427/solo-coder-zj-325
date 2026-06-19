@@ -301,14 +301,39 @@ class RiskActionItem(models.Model):
     ]
     STATUS_CHOICES = [
         ('pending', '待处理'),
-        ('resolved', '已处理'),
+        ('auto_resolved', '自动解除'),
+        ('manually_resolved', '手动解除'),
+        ('confirmed_closed', '管理员确认关闭'),
+    ]
+    RESOLUTION_SOURCE_CHOICES = [
+        ('attendance_confirm', '成员到场确认'),
+        ('lyrics_update', '歌词熟练度更新'),
+        ('accompaniment_confirm', '伴奏确认'),
+        ('teacher_risk_adjust', '老师风险等级调整'),
+        ('feedback_clear', '排练反馈问题清除'),
+        ('understudy_add', '替补成员添加'),
+        ('manual_close', '管理员手动处理'),
+        ('system_auto', '系统自动复核'),
     ]
     check_item = models.ForeignKey(RehearsalCheckItem, on_delete=models.CASCADE, related_name='risk_actions', verbose_name='清单项')
     action_type = models.CharField(max_length=20, choices=ACTION_TYPE_CHOICES, verbose_name='待处理类型')
     description = models.TextField(verbose_name='描述')
+    latest_reason = models.TextField(blank=True, verbose_name='最新风险原因')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='状态')
+    handler = models.ForeignKey(
+        Member, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='handled_risk_actions', verbose_name='处理人'
+    )
+    handler_note = models.TextField(blank=True, verbose_name='处理备注')
+    resolution_source = models.CharField(
+        max_length=30, choices=RESOLUTION_SOURCE_CHOICES,
+        null=True, blank=True, verbose_name='解除来源'
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     resolved_at = models.DateTimeField(null=True, blank=True, verbose_name='处理时间')
+    last_reviewed_at = models.DateTimeField(null=True, blank=True, verbose_name='最近复核时间')
+    auto_resolve_pending = models.BooleanField(default=False, verbose_name='待管理员确认解除')
+    auto_resolve_suggested_at = models.DateTimeField(null=True, blank=True, verbose_name='建议解除时间')
 
     class Meta:
         ordering = ['-created_at']
@@ -318,3 +343,6 @@ class RiskActionItem(models.Model):
 
     def __str__(self):
         return f'{self.check_item.aria.name} - {self.get_action_type_display()}'
+
+    def is_active(self):
+        return self.status == 'pending' or self.status == 'auto_resolved' and self.auto_resolve_pending

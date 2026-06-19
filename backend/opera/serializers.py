@@ -156,10 +156,24 @@ class RiskActionItemSerializer(serializers.ModelSerializer):
     aria_id = serializers.IntegerField(source='check_item.aria_id', read_only=True)
     rehearsal_check = serializers.IntegerField(source='check_item.rehearsal_check_id', read_only=True)
     order_index = serializers.IntegerField(source='check_item.order_index', read_only=True)
+    handler_name = serializers.CharField(source='handler.name', read_only=True, allow_null=True)
+    resolution_source_display = serializers.CharField(source='get_resolution_source_display', read_only=True, allow_null=True)
+    processing_duration = serializers.SerializerMethodField()
+    is_active = serializers.SerializerMethodField()
 
     class Meta:
         model = RiskActionItem
         fields = '__all__'
+
+    def get_processing_duration(self, obj):
+        if obj.created_at and obj.resolved_at:
+            delta = obj.resolved_at - obj.created_at
+            hours = delta.total_seconds() / 3600
+            return round(hours, 2)
+        return None
+
+    def get_is_active(self, obj):
+        return obj.status == 'pending' or (obj.status == 'auto_resolved' and obj.auto_resolve_pending)
 
 
 class RehearsalCheckItemSerializer(serializers.ModelSerializer):

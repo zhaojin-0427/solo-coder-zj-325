@@ -1,4 +1,4 @@
-from django.db.models import Count, Q, F
+from django.db.models import Count, Q, F, Avg, ExpressionWrapper, DurationField
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -22,6 +22,80 @@ from .serializers import (
     RehearsalCheckConfirmationSerializer, RiskActionItemSerializer,
     compute_risk_flags, RISK_FLAG_LABELS
 )
+
+
+def build_latest_reason(item, action_type):
+    aria_name = item.aria.name
+    if action_type == 'attendance':
+        members = [c.member.name for c in item.confirmations.all() if not c.attendance_confirmed]
+        if members:
+            return f'唱段「{aria_name}」仍有未确认到场的成员：{"、".join(members)}。'
+        return ''
+    if action_type == 'understudy':
+        return f'唱段「{aria_name}」暂无替补成员。'
+    if action_type == 'feedback':
+        detail = []
+        if item.latest_start_beat_issue:
+            detail.append(f'起板问题：{item.latest_start_beat_issue}')
+        if item.latest_forgotten_lines:
+            detail.append(f'忘词片段：{item.latest_forgotten_lines}')
+        if detail:
+            return f'唱段「{aria_name}」仍存在排练反馈问题（{"；".join(detail)}）。'
+        return ''
+    if action_type == 'accompaniment':
+        return f'唱段「{aria_name}」伴奏尚未确认备齐（需求：{item.accompaniment_required or "未填写"}）。'
+    if action_type == 'teacher_risk':
+        return f'唱段「{aria_name}」仍被老师标注为{dict(RehearsalCheckItem.RISK_CHOICES).get(item.risk_level, "未知")}风险，处理意见：{item.teacher_comment or "待补充"}。'
+    return ''
+
+
+def review_risk_action_for_item(item, action_type, trigger_source=None):
+    flags = compute_risk_flags(item)
+    risk_action = RiskActionItem.objects.filter(
+        check_item=item,
+        action_type=action_type
+    ).first()
+
+    if not risk_action:
+        return None
+
+    now = timezone.now()
+    risk_action.last_reviewed_at = now
+
+    is_risk_still_exists = action_type in flags
+
+    if is_risk_still_exists:
+        risk_action.status = 'pending'
+        risk_action.auto_resolve_pending = False
+        risk_action.latest_reason = build_latest_reason(item, action_type)
+        risk_action.save(update_fields=['status', 'auto_resolve_pending', 'latest_reason', 'last_reviewed_at'])
+        return {'action': 'keep_pending', 'risk_action': risk_action}
+    else:
+        if risk_action.status in ('pending', 'auto_resolved'):
+            risk_action.status = 'auto_resolved'
+            risk_action.auto_resolve_pending = True
+            risk_action.auto_resolve_suggested_at = now
+            risk_action.resolved_at = now
+            risk_action.resolution_source = trigger_source
+            risk_action.latest_reason = ''
+            risk_action.save(update_fields=[
+                'status', 'auto_resolve_pending', 'auto_resolve_suggested_at',
+                'resolved_at', 'resolution_source', 'latest_reason', 'last_reviewed_at'
+            ])
+            return {'action': 'suggest_auto_resolve', 'risk_action': risk_action}
+
+    risk_action.save(update_fields=['last_reviewed_at'])
+    return {'action': 'no_change', 'risk_action': risk_action}
+
+
+def auto_review_all_risks_for_item(item, trigger_source=None):
+    flags = compute_risk_flags(item)
+    results = []
+    for action_type in ['attendance', 'understudy', 'feedback', 'accompaniment', 'teacher_risk']:
+        result = review_risk_action_for_item(item, action_type, trigger_source)
+        if result:
+            results.append(result)
+    return results
 
 
 class ProgramViewSet(viewsets.ModelViewSet):
@@ -353,7 +427,20 @@ class RehearsalCheckItemViewSet(viewsets.ModelViewSet):
         item.accompaniment_confirmed = True
         item.accompaniment_confirmed_by = member
         item.save(update_fields=['accompaniment_confirmed', 'accompaniment_confirmed_by'])
-        return Response(RehearsalCheckItemSerializer(item).data)
+
+        review_results = auto_review_all_risks_for_item(item, trigger_source='accompaniment_confirm')
+
+        response_data = RehearsalCheckItemSerializer(item).data
+        response_data['risk_review_results'] = [
+            {
+                'action': r['action'],
+                'risk_action_id': r['risk_action'].id,
+                'action_type': r['risk_action'].action_type,
+                'status': r['risk_action'].status,
+            }
+            for r in review_results
+        ]
+        return Response(response_data)
 
     @action(detail=True, methods=['post'])
     def set_risk(self, request, pk=None):
@@ -363,7 +450,37 @@ class RehearsalCheckItemViewSet(viewsets.ModelViewSet):
         if 'teacher_comment' in request.data:
             item.teacher_comment = request.data['teacher_comment']
         item.save(update_fields=['risk_level', 'teacher_comment'])
-        return Response(RehearsalCheckItemSerializer(item).data)
+
+        review_results = auto_review_all_risks_for_item(item, trigger_source='teacher_risk_adjust')
+
+        response_data = RehearsalCheckItemSerializer(item).data
+        response_data['risk_review_results'] = [
+            {
+                'action': r['action'],
+                'risk_action_id': r['risk_action'].id,
+                'action_type': r['risk_action'].action_type,
+                'status': r['risk_action'].status,
+            }
+            for r in review_results
+        ]
+        return Response(response_data)
+
+    @action(detail=True, methods=['post'])
+    def review_risks(self, request, pk=None):
+        item = self.get_object()
+        review_results = auto_review_all_risks_for_item(item, trigger_source='system_auto')
+        return Response({
+            'reviewed_count': len(review_results),
+            'results': [
+                {
+                    'action': r['action'],
+                    'risk_action_id': r['risk_action'].id,
+                    'action_type': r['risk_action'].action_type,
+                    'status': r['risk_action'].status,
+                }
+                for r in review_results
+            ]
+        })
 
 
 class RehearsalCheckConfirmationViewSet(viewsets.ModelViewSet):
@@ -381,12 +498,57 @@ class RehearsalCheckConfirmationViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_update(self, serializer):
+        old_attendance = serializer.instance.attendance_confirmed
+        old_lyrics = serializer.instance.lyrics_proficiency
         instance = serializer.save()
+
         attendance = instance.attendance_confirmed
         lyrics = instance.lyrics_proficiency
         if attendance and lyrics != 'unconfirmed':
             instance.confirmed_at = timezone.now()
             instance.save(update_fields=['confirmed_at'])
+
+        trigger_source = None
+        if attendance != old_attendance and attendance:
+            trigger_source = 'attendance_confirm'
+        elif lyrics != old_lyrics:
+            trigger_source = 'lyrics_update'
+
+        if trigger_source:
+            item = instance.check_item
+            auto_review_all_risks_for_item(item, trigger_source=trigger_source)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        old_attendance = instance.attendance_confirmed
+        old_lyrics = instance.lyrics_proficiency
+
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        if getattr(instance, '_prefetched_objects_cache', None):
+            instance._prefetched_objects_cache = {}
+
+        response_data = serializer.data
+
+        new_attendance = response_data.get('attendance_confirmed')
+        new_lyrics = response_data.get('lyrics_proficiency')
+        if (new_attendance != old_attendance) or (new_lyrics != old_lyrics):
+            item = instance.check_item
+            review_results = auto_review_all_risks_for_item(item, trigger_source='attendance_confirm' if new_attendance != old_attendance else 'lyrics_update')
+            response_data['risk_review_results'] = [
+                {
+                    'action': r['action'],
+                    'risk_action_id': r['risk_action'].id,
+                    'action_type': r['risk_action'].action_type,
+                    'status': r['risk_action'].status,
+                }
+                for r in review_results
+            ]
+
+        return Response(response_data)
 
 
 class RiskActionItemViewSet(viewsets.ModelViewSet):
@@ -394,22 +556,112 @@ class RiskActionItemViewSet(viewsets.ModelViewSet):
     serializer_class = RiskActionItemSerializer
 
     def get_queryset(self):
-        queryset = super().get_queryset().select_related('check_item__aria')
+        queryset = super().get_queryset().select_related('check_item__aria', 'handler')
         rehearsal_check = self.request.query_params.get('rehearsal_check')
         if rehearsal_check:
             queryset = queryset.filter(check_item__rehearsal_check_id=rehearsal_check)
         status = self.request.query_params.get('status')
         if status:
             queryset = queryset.filter(status=status)
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            if is_active.lower() == 'true':
+                queryset = queryset.filter(status='pending') | queryset.filter(status='auto_resolved', auto_resolve_pending=True)
+            else:
+                queryset = queryset.exclude(status='pending').exclude(status='auto_resolved', auto_resolve_pending=True)
         return queryset
 
     @action(detail=True, methods=['post'])
     def resolve(self, request, pk=None):
         action = self.get_object()
-        action.status = 'resolved'
+        handler_id = request.data.get('handler_id')
+        handler_note = request.data.get('handler_note', '')
+
+        action.status = 'manually_resolved'
         action.resolved_at = timezone.now()
-        action.save(update_fields=['status', 'resolved_at'])
+        action.handler = Member.objects.filter(id=handler_id).first() if handler_id else None
+        action.handler_note = handler_note
+        action.resolution_source = 'manual_close'
+        action.auto_resolve_pending = False
+        action.save(update_fields=[
+            'status', 'resolved_at', 'handler', 'handler_note',
+            'resolution_source', 'auto_resolve_pending'
+        ])
         return Response(RiskActionItemSerializer(action).data)
+
+    @action(detail=True, methods=['post'])
+    def confirm_close(self, request, pk=None):
+        action = self.get_object()
+        if not action.auto_resolve_pending:
+            return Response(
+                {'error': '该风险项不需要管理员确认关闭'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        handler_id = request.data.get('handler_id')
+        handler_note = request.data.get('handler_note', '')
+
+        action.status = 'confirmed_closed'
+        action.auto_resolve_pending = False
+        action.handler = Member.objects.filter(id=handler_id).first() if handler_id else None
+        action.handler_note = handler_note
+        if not action.resolved_at:
+            action.resolved_at = timezone.now()
+        action.save(update_fields=[
+            'status', 'auto_resolve_pending', 'handler', 'handler_note', 'resolved_at'
+        ])
+        return Response(RiskActionItemSerializer(action).data)
+
+    @action(detail=True, methods=['post'])
+    def reject_auto_resolve(self, request, pk=None):
+        action = self.get_object()
+        if not action.auto_resolve_pending:
+            return Response(
+                {'error': '该风险项不处于待确认解除状态'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        handler_note = request.data.get('handler_note', '')
+
+        action.status = 'pending'
+        action.auto_resolve_pending = False
+        action.auto_resolve_suggested_at = None
+        action.handler_note = handler_note
+        action.resolved_at = None
+        action.resolution_source = None
+        action.latest_reason = build_latest_reason(action.check_item, action.action_type)
+        action.save(update_fields=[
+            'status', 'auto_resolve_pending', 'auto_resolve_suggested_at',
+            'handler_note', 'resolved_at', 'resolution_source', 'latest_reason'
+        ])
+        return Response(RiskActionItemSerializer(action).data)
+
+    @action(detail=True, methods=['post'])
+    def update_handler(self, request, pk=None):
+        action = self.get_object()
+        handler_id = request.data.get('handler_id')
+        handler_note = request.data.get('handler_note', '')
+
+        if handler_id:
+            action.handler = Member.objects.filter(id=handler_id).first()
+        if handler_note:
+            action.handler_note = handler_note
+        action.save(update_fields=['handler', 'handler_note'])
+        return Response(RiskActionItemSerializer(action).data)
+
+    @action(detail=False, methods=['get'])
+    def active_risks(self, request):
+        queryset = self.get_queryset().filter(
+            Q(status='pending') | Q(status='auto_resolved', auto_resolve_pending=True)
+        )
+        return Response(RiskActionItemSerializer(queryset, many=True).data)
+
+    @action(detail=False, methods=['get'])
+    def history_risks(self, request):
+        queryset = self.get_queryset().exclude(
+            Q(status='pending') | Q(status='auto_resolved', auto_resolve_pending=True)
+        )
+        return Response(RiskActionItemSerializer(queryset, many=True).data)
 
 
 class StatisticsView(APIView):
@@ -514,6 +766,118 @@ class StatisticsView(APIView):
         ).order_by('-count')
         pending_risk_actions = RiskActionItem.objects.filter(status='pending').count()
 
+        unresolved_risks = RiskActionItem.objects.filter(
+            Q(status='pending') | Q(status='auto_resolved', auto_resolve_pending=True)
+        ).count()
+        resolved_risks = RiskActionItem.objects.exclude(
+            Q(status='pending') | Q(status='auto_resolved', auto_resolve_pending=True)
+        ).count()
+        total_risks = unresolved_risks + resolved_risks
+        overall_resolution_rate = (resolved_risks / total_risks * 100) if total_risks > 0 else 0
+
+        avg_processing_time = RiskActionItem.objects.filter(
+            resolved_at__isnull=False,
+            created_at__isnull=False
+        ).exclude(
+            status='pending'
+        ).annotate(
+            duration=ExpressionWrapper(
+                F('resolved_at') - F('created_at'),
+                output_field=DurationField()
+            )
+        ).aggregate(avg_duration=Avg('duration'))
+
+        avg_hours = None
+        if avg_processing_time['avg_duration']:
+            avg_hours = round(avg_processing_time['avg_duration'].total_seconds() / 3600, 2)
+
+        program_risk_stats = defaultdict(lambda: {
+            'program_id': None,
+            'program_name': '',
+            'total_risks': 0,
+            'resolved_risks': 0,
+            'unresolved_risks': 0,
+            'resolution_rate': 0,
+            'avg_processing_hours': None,
+            'processing_times': []
+        })
+
+        all_resolved_risks = RiskActionItem.objects.filter(
+            resolved_at__isnull=False
+        ).select_related('check_item__aria__program', 'handler')
+
+        for risk in all_resolved_risks:
+            program_id = risk.check_item.aria.program_id
+            program_name = risk.check_item.aria.program.name
+            key = program_id
+            program_risk_stats[key]['program_id'] = program_id
+            program_risk_stats[key]['program_name'] = program_name
+            program_risk_stats[key]['total_risks'] += 1
+            if risk.status == 'pending' or (risk.status == 'auto_resolved' and risk.auto_resolve_pending):
+                program_risk_stats[key]['unresolved_risks'] += 1
+            else:
+                program_risk_stats[key]['resolved_risks'] += 1
+                if risk.created_at and risk.resolved_at:
+                    hours = (risk.resolved_at - risk.created_at).total_seconds() / 3600
+                    program_risk_stats[key]['processing_times'].append(hours)
+
+        all_pending_risks = RiskActionItem.objects.filter(
+            status='pending'
+        ).select_related('check_item__aria__program')
+
+        for risk in all_pending_risks:
+            program_id = risk.check_item.aria.program_id
+            program_name = risk.check_item.aria.program.name
+            key = program_id
+            program_risk_stats[key]['program_id'] = program_id
+            program_risk_stats[key]['program_name'] = program_name
+            program_risk_stats[key]['total_risks'] += 1
+            program_risk_stats[key]['unresolved_risks'] += 1
+
+        for key in program_risk_stats:
+            stat = program_risk_stats[key]
+            if stat['total_risks'] > 0:
+                stat['resolution_rate'] = round(stat['resolved_risks'] / stat['total_risks'] * 100, 2)
+            if stat['processing_times']:
+                stat['avg_processing_hours'] = round(sum(stat['processing_times']) / len(stat['processing_times']), 2)
+            del stat['processing_times']
+
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        risk_type_trend = RiskActionItem.objects.filter(
+            created_at__gte=thirty_days_ago
+        ).values('action_type').annotate(
+            count=Count('id')
+        ).order_by('-count')
+
+        daily_risk_trend = []
+        for i in range(30):
+            day_start = timezone.now() - timedelta(days=30 - i)
+            day_end = day_start + timedelta(days=1)
+            day_start = day_start.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_end.replace(hour=0, minute=0, second=0, microsecond=0)
+
+            created_count = RiskActionItem.objects.filter(
+                created_at__gte=day_start,
+                created_at__lt=day_end
+            ).count()
+
+            resolved_count = RiskActionItem.objects.filter(
+                resolved_at__gte=day_start,
+                resolved_at__lt=day_end
+            ).exclude(status='pending').count()
+
+            daily_risk_trend.append({
+                'date': day_start.strftime('%Y-%m-%d'),
+                'created': created_count,
+                'resolved': resolved_count
+            })
+
+        resolution_source_breakdown = RiskActionItem.objects.filter(
+            resolution_source__isnull=False
+        ).values('resolution_source').annotate(
+            count=Count('id')
+        ).order_by('-count')
+
         data['pre_performance_risk'] = {
             'open_check_count': len(open_check_list),
             'risk_aria_count': risk_aria_total,
@@ -528,6 +892,36 @@ class StatisticsView(APIView):
                 for item in risk_action_breakdown
             ],
             'program_risk': sorted(program_risk.values(), key=lambda x: x['risk_aria_count'], reverse=True),
+        }
+
+        data['risk_closure_stats'] = {
+            'total_risks': total_risks,
+            'unresolved_risks': unresolved_risks,
+            'resolved_risks': resolved_risks,
+            'overall_resolution_rate': round(overall_resolution_rate, 2),
+            'avg_processing_hours': avg_hours,
+            'program_risk_stats': sorted(
+                program_risk_stats.values(),
+                key=lambda x: x['resolution_rate'],
+                reverse=True
+            ),
+            'risk_type_trend': [
+                {
+                    'action_type': item['action_type'],
+                    'label': dict(RiskActionItem.ACTION_TYPE_CHOICES).get(item['action_type'], item['action_type']),
+                    'count': item['count']
+                }
+                for item in risk_type_trend
+            ],
+            'daily_risk_trend': daily_risk_trend,
+            'resolution_source_breakdown': [
+                {
+                    'source': item['resolution_source'],
+                    'label': dict(RiskActionItem.RESOLUTION_SOURCE_CHOICES).get(item['resolution_source'], item['resolution_source']),
+                    'count': item['count']
+                }
+                for item in resolution_source_breakdown
+            ]
         }
 
         return Response(data)

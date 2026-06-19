@@ -13,7 +13,8 @@ import {
   fetchRehearsalChecks, createRehearsalCheck, updateRehearsalCheck, deleteRehearsalCheck,
   fetchRehearsalCheckItems, fetchRiskDashboard, generateRiskActions,
   confirmAccompaniment, setRehearsalCheckItemRisk, updateRehearsalCheckConfirmation,
-  fetchRiskActions, resolveRiskAction
+  fetchRiskActions, resolveRiskAction, confirmCloseRiskAction, rejectAutoResolve,
+  updateRiskActionHandler, fetchActiveRisks, fetchHistoryRisks, reviewItemRisks
 } from '@/api/opera'
 
 export const useOperaStore = defineStore('opera', () => {
@@ -186,11 +187,55 @@ export const useOperaStore = defineStore('opera', () => {
     }
   }
 
-  async function resolveRiskActionById(id) {
-    const result = await resolveRiskAction(id)
+  async function resolveRiskActionById(id, handlerId = null, handlerNote = '') {
+    const result = await resolveRiskAction(id, handlerId, handlerNote)
     const index = riskActions.value.findIndex(a => a.id === id)
     if (index !== -1) riskActions.value[index] = result
     return result
+  }
+
+  async function confirmCloseRiskActionById(id, handlerId = null, handlerNote = '') {
+    const result = await confirmCloseRiskAction(id, handlerId, handlerNote)
+    const index = riskActions.value.findIndex(a => a.id === id)
+    if (index !== -1) riskActions.value[index] = result
+    return result
+  }
+
+  async function rejectAutoResolveById(id, handlerNote = '') {
+    const result = await rejectAutoResolve(id, handlerNote)
+    const index = riskActions.value.findIndex(a => a.id === id)
+    if (index !== -1) riskActions.value[index] = result
+    return result
+  }
+
+  async function updateRiskActionHandlerById(id, handlerId = null, handlerNote = '') {
+    const result = await updateRiskActionHandler(id, handlerId, handlerNote)
+    const index = riskActions.value.findIndex(a => a.id === id)
+    if (index !== -1) riskActions.value[index] = result
+    return result
+  }
+
+  async function loadActiveRisks(checkId = null) {
+    loading.value = true
+    try {
+      riskActions.value = await fetchActiveRisks(checkId)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function loadHistoryRisks(checkId = null) {
+    loading.value = true
+    try {
+      const history = await fetchHistoryRisks(checkId)
+      return history
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function reviewRisksForItem(itemId) {
+    return await reviewItemRisks(itemId)
   }
 
   async function confirmAccompanimentForItem(itemId, memberId = null) {
@@ -364,7 +409,9 @@ export const useOperaStore = defineStore('opera', () => {
     activePrograms, activeAssignments, pendingUnderstudy, openRehearsalChecks,
     loadPrograms, loadArias, loadRoles, loadMembers, loadAssignments, loadRehearsals, loadFeedbacks, loadUnderstudyChanges, loadStatistics, loadArchives,
     loadRehearsalChecks, addRehearsalCheck, editRehearsalCheck, removeRehearsalCheck,
-    getRehearsalCheckItems, getRiskDashboard, runGenerateRiskActions, loadRiskActions, resolveRiskActionById,
+    getRehearsalCheckItems, getRiskDashboard, runGenerateRiskActions, loadRiskActions,
+    resolveRiskActionById, confirmCloseRiskActionById, rejectAutoResolveById, updateRiskActionHandlerById,
+    loadActiveRisks, loadHistoryRisks, reviewRisksForItem,
     confirmAccompanimentForItem, setItemRisk, updateConfirmation,
     addProgram, editProgram, removeProgram,
     addAria, editAria, removeAria,

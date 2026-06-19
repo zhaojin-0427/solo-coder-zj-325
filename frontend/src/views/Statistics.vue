@@ -35,6 +35,33 @@
       />
     </div>
 
+    <div class="stats-grid">
+      <StatsCard 
+        :icon="Warning" 
+        label="风险总数" 
+        :value="riskStats.total_risks" 
+        bgColor="linear-gradient(135deg, #C41E3A, #8B0000)"
+      />
+      <StatsCard 
+        :icon="Clock" 
+        label="未解除风险" 
+        :value="riskStats.unresolved_risks" 
+        bgColor="linear-gradient(135deg, #FF9800, #F57C00)"
+      />
+      <StatsCard 
+        :icon="CircleCheck" 
+        label="风险解除率" 
+        :value="riskStats.overall_resolution_rate + '%'" 
+        bgColor="linear-gradient(135deg, #2E7D32, #1B5E20)"
+      />
+      <StatsCard 
+        :icon="Timer" 
+        label="平均处理时长" 
+        :value="riskStats.avg_processing_hours !== null ? riskStats.avg_processing_hours + 'h' : '-'" 
+        bgColor="linear-gradient(135deg, #1976D2, #0D47A1)"
+      />
+    </div>
+
     <el-row :gutter="20">
       <el-col :span="12">
         <div class="opera-card">
@@ -85,6 +112,37 @@
       </el-col>
     </el-row>
 
+    <el-row :gutter="20">
+      <el-col :span="12">
+        <div class="opera-card">
+          <h3 class="section-title">各节目风险解除率</h3>
+          <div class="chart-container">
+            <v-chart class="chart" :option="resolutionRateChartOption" autoresize />
+          </div>
+        </div>
+      </el-col>
+
+      <el-col :span="12">
+        <div class="opera-card">
+          <h3 class="section-title">高频风险类型趋势（近30天）</h3>
+          <div class="chart-container">
+            <v-chart class="chart" :option="riskTypeTrendChartOption" autoresize />
+          </div>
+        </div>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="20">
+      <el-col :span="24">
+        <div class="opera-card">
+          <h3 class="section-title">风险创建与解除趋势（近30天）</h3>
+          <div class="chart-container">
+            <v-chart class="chart" :option="dailyTrendChartOption" autoresize />
+          </div>
+        </div>
+      </el-col>
+    </el-row>
+
     <div class="opera-card">
       <h3 class="section-title">演出前风险统计</h3>
       <div class="risk-overview">
@@ -99,6 +157,10 @@
         <div class="risk-stat">
           <div class="risk-stat-value">{{ preRisk.pending_risk_actions }}</div>
           <div class="risk-stat-label">待处理风险项</div>
+        </div>
+        <div class="risk-stat">
+          <div class="risk-stat-value">{{ riskStats.unresolved_risks }}</div>
+          <div class="risk-stat-label">未解除风险</div>
         </div>
         <div class="risk-stat-link" @click="goToRehearsalChecks">
           <el-icon><Right /></el-icon>
@@ -121,6 +183,21 @@
         </el-col>
       </el-row>
 
+      <el-row :gutter="20" style="margin-top: 16px">
+        <el-col :span="12">
+          <h4 class="sub-title">解除来源分布</h4>
+          <div class="chart-container">
+            <v-chart class="chart small-chart" :option="resolutionSourceChartOption" autoresize />
+          </div>
+        </el-col>
+        <el-col :span="12">
+          <h4 class="sub-title">各节目平均处理时长</h4>
+          <div class="chart-container">
+            <v-chart class="chart small-chart" :option="avgProcessingTimeChartOption" autoresize />
+          </div>
+        </el-col>
+      </el-row>
+
       <h4 class="sub-title" style="margin-top: 16px">各节目演出前风险</h4>
       <el-table :data="preRisk.program_risk" stripe size="small">
         <el-table-column prop="program_name" label="节目" min-width="160" />
@@ -135,6 +212,41 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <h4 class="sub-title" style="margin-top: 24px">各节目风险处理统计</h4>
+      <el-table :data="programRiskStats" stripe size="small">
+        <el-table-column prop="program_name" label="节目" min-width="160" />
+        <el-table-column prop="total_risks" label="风险总数" width="100">
+          <template #default="{ row }">
+            <el-tag type="info">{{ row.total_risks }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="resolved_risks" label="已解除" width="100">
+          <template #default="{ row }">
+            <el-tag type="success">{{ row.resolved_risks }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="unresolved_risks" label="未解除" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.unresolved_risks > 0 ? 'danger' : 'success'">{{ row.unresolved_risks }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="resolution_rate" label="解除率" width="120">
+          <template #default="{ row }">
+            <el-progress 
+              :percentage="row.resolution_rate" 
+              :stroke-width="12"
+              :color="row.resolution_rate >= 80 ? '#2E7D32' : row.resolution_rate >= 50 ? '#FF9800' : '#C41E3A'"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column prop="avg_processing_hours" label="平均处理时长" width="140">
+          <template #default="{ row }">
+            <span v-if="row.avg_processing_hours !== null">{{ row.avg_processing_hours }} 小时</span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
+      </el-table>
     </div>
   </div>
 </template>
@@ -146,19 +258,20 @@ import { useOperaStore } from '@/stores/opera'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { BarChart, PieChart, RadarChart } from 'echarts/charts'
+import { BarChart, PieChart, RadarChart, LineChart } from 'echarts/charts'
 import {
   GridComponent, TooltipComponent, LegendComponent,
   TitleComponent, RadarComponent
 } from 'echarts/components'
 import StatsCard from '@/components/StatsCard.vue'
-import { Grid, UserFilled, VideoPlay, Calendar, Refresh, Right } from '@element-plus/icons-vue'
+import { Grid, UserFilled, VideoPlay, Calendar, Refresh, Right, Warning, Clock, CircleCheck, Timer } from '@element-plus/icons-vue'
 
 use([
   CanvasRenderer,
   BarChart,
   PieChart,
   RadarChart,
+  LineChart,
   GridComponent,
   TooltipComponent,
   LegendComponent,
@@ -178,6 +291,20 @@ const preRisk = computed(() => store.statistics?.pre_performance_risk || {
   risk_action_breakdown: [],
   program_risk: []
 })
+
+const riskStats = computed(() => store.statistics?.risk_closure_stats || {
+  total_risks: 0,
+  unresolved_risks: 0,
+  resolved_risks: 0,
+  overall_resolution_rate: 0,
+  avg_processing_hours: null,
+  program_risk_stats: [],
+  risk_type_trend: [],
+  daily_risk_trend: [],
+  resolution_source_breakdown: []
+})
+
+const programRiskStats = computed(() => riskStats.value.program_risk_stats || [])
 
 const memberOptions = computed(() => {
   if (!store.statistics) return []
@@ -490,6 +617,223 @@ const riskActionChartOption = computed(() => {
   }
 })
 
+const resolutionRateChartOption = computed(() => {
+  const data = programRiskStats.value
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: '{b}: {c}%'
+    },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: data.map(d => d.program_name),
+      axisLabel: { color: '#666', interval: 0, rotate: 0 },
+      axisLine: { lineStyle: { color: '#E8DCC8' } }
+    },
+    yAxis: {
+      type: 'value',
+      name: '解除率(%)',
+      nameTextStyle: { color: '#666' },
+      axisLabel: { color: '#666', formatter: '{value}%' },
+      splitLine: { lineStyle: { color: '#E8DCC8', type: 'dashed' } },
+      max: 100
+    },
+    series: [{
+      name: '解除率',
+      type: 'bar',
+      data: data.map(d => ({
+        value: d.resolution_rate,
+        itemStyle: {
+          color: d.resolution_rate >= 80 ? '#2E7D32' : d.resolution_rate >= 50 ? '#FF9800' : '#C41E3A',
+          borderRadius: [4, 4, 0, 0]
+        }
+      })),
+      barWidth: '50%',
+      label: {
+        show: true,
+        position: 'top',
+        color: '#666',
+        formatter: '{c}%'
+      }
+    }]
+  }
+})
+
+const riskTypeTrendChartOption = computed(() => {
+  const data = riskStats.value.risk_type_trend || []
+  const colors = {
+    attendance: '#C41E3A',
+    understudy: '#D4AF37',
+    feedback: '#2E7D32',
+    accompaniment: '#1976D2',
+    teacher_risk: '#7B1FA2'
+  }
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}个' },
+    legend: { bottom: 0, textStyle: { color: '#666' } },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['50%', '45%'],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+      label: { show: false, position: 'center' },
+      labelLine: { show: false },
+      data: data.map(d => ({
+        value: d.count,
+        name: d.label,
+        itemStyle: { color: colors[d.action_type] || '#999' }
+      }))
+    }]
+  }
+})
+
+const dailyTrendChartOption = computed(() => {
+  const data = riskStats.value.daily_risk_trend || []
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' }
+    },
+    legend: {
+      data: ['新增风险', '解除风险'],
+      textStyle: { color: '#666' }
+    },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: data.map(d => d.date),
+      axisLabel: { 
+        color: '#666', 
+        interval: 4,
+        rotate: 45
+      },
+      axisLine: { lineStyle: { color: '#E8DCC8' } }
+    },
+    yAxis: {
+      type: 'value',
+      name: '数量',
+      nameTextStyle: { color: '#666' },
+      axisLabel: { color: '#666' },
+      splitLine: { lineStyle: { color: '#E8DCC8', type: 'dashed' } }
+    },
+    series: [
+      {
+        name: '新增风险',
+        type: 'line',
+        data: data.map(d => d.created),
+        smooth: true,
+        lineStyle: { color: '#C41E3A', width: 2 },
+        itemStyle: { color: '#C41E3A' },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(196, 30, 58, 0.3)' },
+              { offset: 1, color: 'rgba(196, 30, 58, 0.05)' }
+            ]
+          }
+        }
+      },
+      {
+        name: '解除风险',
+        type: 'line',
+        data: data.map(d => d.resolved),
+        smooth: true,
+        lineStyle: { color: '#2E7D32', width: 2 },
+        itemStyle: { color: '#2E7D32' },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(46, 125, 50, 0.3)' },
+              { offset: 1, color: 'rgba(46, 125, 50, 0.05)' }
+            ]
+          }
+        }
+      }
+    ]
+  }
+})
+
+const resolutionSourceChartOption = computed(() => {
+  const data = riskStats.value.resolution_source_breakdown || []
+  const colors = ['#C41E3A', '#D4AF37', '#2E7D32', '#FF9800', '#1976D2', '#7B1FA2', '#009688', '#E91E63']
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}个' },
+    legend: { 
+      orient: 'vertical',
+      left: 'left',
+      textStyle: { color: '#666' } 
+    },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      center: ['65%', '50%'],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+      label: { show: false, position: 'center' },
+      labelLine: { show: false },
+      data: data.map((d, i) => ({
+        value: d.count,
+        name: d.label,
+        itemStyle: { color: colors[i % colors.length] }
+      }))
+    }]
+  }
+})
+
+const avgProcessingTimeChartOption = computed(() => {
+  const data = programRiskStats.value.filter(d => d.avg_processing_hours !== null)
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: '{b}: {c} 小时'
+    },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: data.map(d => d.program_name),
+      axisLabel: { color: '#666', interval: 0, rotate: 0 },
+      axisLine: { lineStyle: { color: '#E8DCC8' } }
+    },
+    yAxis: {
+      type: 'value',
+      name: '小时',
+      nameTextStyle: { color: '#666' },
+      axisLabel: { color: '#666' },
+      splitLine: { lineStyle: { color: '#E8DCC8', type: 'dashed' } }
+    },
+    series: [{
+      name: '平均处理时长',
+      type: 'bar',
+      data: data.map(d => d.avg_processing_hours),
+      itemStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: '#1976D2' },
+            { offset: 1, color: '#0D47A1' }
+          ]
+        },
+        borderRadius: [4, 4, 0, 0]
+      },
+      barWidth: '50%',
+      label: {
+        show: true,
+        position: 'top',
+        color: '#666',
+        formatter: '{c}h'
+      }
+    }]
+  }
+})
+
 function goToRehearsalChecks() {
   router.push('/rehearsal-checks')
 }
@@ -586,5 +930,10 @@ onMounted(async () => {
 
 .small-chart {
   height: 280px;
+}
+
+.muted {
+  color: #999;
+  font-size: 12px;
 }
 </style>
