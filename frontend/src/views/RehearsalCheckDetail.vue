@@ -262,8 +262,8 @@
         <h3 class="section-title">待处理风险项</h3>
         <div class="risk-actions-tabs">
           <el-radio-group v-model="actionTab" size="small">
-            <el-radio-button value="active">待处理 / 待确认</el-radio-button>
-            <el-radio-button value="history">历史记录</el-radio-button>
+            <el-radio-button value="active">待处理</el-radio-button>
+            <el-radio-button value="history">历史已解除</el-radio-button>
           </el-radio-group>
         </div>
       </div>
@@ -474,18 +474,12 @@ const handlerDialogTitle = computed(() => {
 
 const activeRiskItems = computed(() => {
   if (!dashboard.value) return []
-  return dashboard.value.risk_items.filter(item => {
-    const itemRisks = store.riskActions.filter(a => a.aria_id === item.aria_id && a.is_active)
-    return itemRisks.length > 0 || item.risk_score > 0
-  })
+  return dashboard.value.risk_items.filter(item => item.has_active_risks)
 })
 
 const historyRiskItems = computed(() => {
   if (!dashboard.value) return []
-  return dashboard.value.risk_items.filter(item => {
-    const itemRisks = store.riskActions.filter(a => a.aria_id === item.aria_id && !a.is_active)
-    return itemRisks.length > 0 && item.risk_score === 0
-  })
+  return dashboard.value.risk_items.filter(item => !item.has_active_risks)
 })
 
 const activeActions = computed(() => store.riskActions.filter(a => a.is_active))
@@ -575,6 +569,11 @@ function formatTime(value) {
 
 function handleRiskReviewResults(results) {
   if (!results || results.length === 0) return
+  
+  const created = results.filter(r => r.action === 'created')
+  if (created.length > 0) {
+    ElMessage.info(`新增 ${created.length} 项风险待处理项`)
+  }
   
   const autoResolved = results.filter(r => r.action === 'suggest_auto_resolve')
   if (autoResolved.length > 0) {

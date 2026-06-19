@@ -173,7 +173,7 @@ class RiskActionItemSerializer(serializers.ModelSerializer):
         return None
 
     def get_is_active(self, obj):
-        return obj.status == 'pending' or (obj.status == 'auto_resolved' and obj.auto_resolve_pending)
+        return obj.status == 'pending'
 
 
 class RehearsalCheckItemSerializer(serializers.ModelSerializer):

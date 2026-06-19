@@ -65,13 +65,20 @@ def review_risk_action_for_item(item, action_type, trigger_source=None):
     is_risk_still_exists = action_type in flags
 
     if is_risk_still_exists:
-        risk_action.status = 'pending'
-        risk_action.auto_resolve_pending = False
+        if risk_action.status != 'pending':
+            risk_action.status = 'pending'
+            risk_action.auto_resolve_pending = False
+            risk_action.auto_resolve_suggested_at = None
+            risk_action.resolved_at = None
+            risk_action.resolution_source = None
         risk_action.latest_reason = build_latest_reason(item, action_type)
-        risk_action.save(update_fields=['status', 'auto_resolve_pending', 'latest_reason', 'last_reviewed_at'])
+        risk_action.save(update_fields=[
+            'status', 'auto_resolve_pending', 'auto_resolve_suggested_at',
+            'resolved_at', 'resolution_source', 'latest_reason', 'last_reviewed_at'
+        ])
         return {'action': 'keep_pending', 'risk_action': risk_action}
     else:
-        if risk_action.status in ('pending', 'auto_resolved'):
+        if risk_action.status == 'pending':
             risk_action.status = 'auto_resolved'
             risk_action.auto_resolve_pending = True
             risk_action.auto_resolve_suggested_at = now
@@ -88,12 +95,38 @@ def review_risk_action_for_item(item, action_type, trigger_source=None):
     return {'action': 'no_change', 'risk_action': risk_action}
 
 
-def auto_review_all_risks_for_item(item, trigger_source=None):
+def ensure_risk_action_items_for_item(item):
     flags = compute_risk_flags(item)
+    created_items = []
+    for flag in flags:
+        description = build_action_description(item, flag)
+        reason = build_latest_reason(item, flag)
+        obj, created = RiskActionItem.objects.get_or_create(
+            check_item=item,
+            action_type=flag,
+            defaults={
+                'description': description,
+                'latest_reason': reason,
+                'status': 'pending',
+            },
+        )
+        if created:
+            created_items.append(obj)
+    if flags:
+        item.risk_action_created = True
+        item.save(update_fields=['risk_action_created'])
+    return created_items
+
+
+def auto_review_all_risks_for_item(item, trigger_source=None):
+    created_items = ensure_risk_action_items_for_item(item)
+    created_action_types = {ci.action_type for ci in created_items}
     results = []
     for action_type in ['attendance', 'understudy', 'feedback', 'accompaniment', 'teacher_risk']:
         result = review_risk_action_for_item(item, action_type, trigger_source)
         if result:
+            if result['action'] == 'keep_pending' and result['risk_action'].action_type in created_action_types:
+                result['action'] = 'created'
             results.append(result)
     return results
 
@@ -328,7 +361,8 @@ class RehearsalCheckViewSet(viewsets.ModelViewSet):
         flag_counter = defaultdict(int)
         for item in items:
             flags = compute_risk_flags(item)
-            if not flags:
+            risk_actions = list(item.risk_actions.all())
+            if not flags and not risk_actions:
                 continue
             for flag in flags:
                 flag_counter[flag] += 1
@@ -337,6 +371,7 @@ class RehearsalCheckViewSet(viewsets.ModelViewSet):
                 {'id': c.member_id, 'name': c.member.name, 'role_name': c.role_name or ''}
                 for c in confirmations if not c.attendance_confirmed
             ]
+            has_pending_actions = any(ra.status == 'pending' for ra in risk_actions)
             risk_items.append({
                 'item_id': item.id,
                 'aria_id': item.aria_id,
@@ -348,6 +383,7 @@ class RehearsalCheckViewSet(viewsets.ModelViewSet):
                 'flags': flags,
                 'flag_labels': [RISK_FLAG_LABELS.get(f, f) for f in flags],
                 'risk_score': len(flags),
+                'has_active_risks': len(flags) > 0 or has_pending_actions,
                 'has_understudy': any(c.is_understudy for c in confirmations),
                 'unconfirmed_members': unconfirmed_members,
                 'latest_start_beat_issue': item.latest_start_beat_issue,
@@ -360,7 +396,7 @@ class RehearsalCheckViewSet(viewsets.ModelViewSet):
         risk_items.sort(key=lambda x: x['risk_score'], reverse=True)
         summary = {
             'total_items': check.items.count(),
-            'risk_aria_count': len(risk_items),
+            'risk_aria_count': sum(1 for r in risk_items if r['has_active_risks']),
             'flag_breakdown': [
                 {'action_type': flag, 'label': RISK_FLAG_LABELS.get(flag, flag), 'count': flag_counter[flag]}
                 for flag in ['attendance', 'understudy', 'feedback', 'accompaniment', 'teacher_risk']
@@ -383,11 +419,18 @@ class RehearsalCheckViewSet(viewsets.ModelViewSet):
             flags = compute_risk_flags(item)
             for flag in flags:
                 description = build_action_description(item, flag)
+                reason = build_latest_reason(item, flag)
                 obj, created = RiskActionItem.objects.get_or_create(
                     check_item=item,
                     action_type=flag,
-                    defaults={'description': description},
+                    defaults={
+                        'description': description,
+                        'latest_reason': reason,
+                    },
                 )
+                if not created and obj.status == 'pending' and not obj.latest_reason:
+                    obj.latest_reason = reason
+                    obj.save(update_fields=['latest_reason'])
                 if created:
                     created_items.append({
                         'id': obj.id,
@@ -566,9 +609,9 @@ class RiskActionItemViewSet(viewsets.ModelViewSet):
         is_active = self.request.query_params.get('is_active')
         if is_active is not None:
             if is_active.lower() == 'true':
-                queryset = queryset.filter(status='pending') | queryset.filter(status='auto_resolved', auto_resolve_pending=True)
+                queryset = queryset.filter(status='pending')
             else:
-                queryset = queryset.exclude(status='pending').exclude(status='auto_resolved', auto_resolve_pending=True)
+                queryset = queryset.exclude(status='pending')
         return queryset
 
     @action(detail=True, methods=['post'])
@@ -651,16 +694,12 @@ class RiskActionItemViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def active_risks(self, request):
-        queryset = self.get_queryset().filter(
-            Q(status='pending') | Q(status='auto_resolved', auto_resolve_pending=True)
-        )
+        queryset = self.get_queryset().filter(status='pending')
         return Response(RiskActionItemSerializer(queryset, many=True).data)
 
     @action(detail=False, methods=['get'])
     def history_risks(self, request):
-        queryset = self.get_queryset().exclude(
-            Q(status='pending') | Q(status='auto_resolved', auto_resolve_pending=True)
-        )
+        queryset = self.get_queryset().exclude(status='pending')
         return Response(RiskActionItemSerializer(queryset, many=True).data)
 
 
@@ -766,12 +805,8 @@ class StatisticsView(APIView):
         ).order_by('-count')
         pending_risk_actions = RiskActionItem.objects.filter(status='pending').count()
 
-        unresolved_risks = RiskActionItem.objects.filter(
-            Q(status='pending') | Q(status='auto_resolved', auto_resolve_pending=True)
-        ).count()
-        resolved_risks = RiskActionItem.objects.exclude(
-            Q(status='pending') | Q(status='auto_resolved', auto_resolve_pending=True)
-        ).count()
+        unresolved_risks = RiskActionItem.objects.filter(status='pending').count()
+        resolved_risks = RiskActionItem.objects.exclude(status='pending').count()
         total_risks = unresolved_risks + resolved_risks
         overall_resolution_rate = (resolved_risks / total_risks * 100) if total_risks > 0 else 0
 
@@ -813,7 +848,7 @@ class StatisticsView(APIView):
             program_risk_stats[key]['program_id'] = program_id
             program_risk_stats[key]['program_name'] = program_name
             program_risk_stats[key]['total_risks'] += 1
-            if risk.status == 'pending' or (risk.status == 'auto_resolved' and risk.auto_resolve_pending):
+            if risk.status == 'pending':
                 program_risk_stats[key]['unresolved_risks'] += 1
             else:
                 program_risk_stats[key]['resolved_risks'] += 1

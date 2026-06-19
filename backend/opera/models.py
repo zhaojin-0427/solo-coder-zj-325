@@ -345,4 +345,4 @@ class RiskActionItem(models.Model):
         return f'{self.check_item.aria.name} - {self.get_action_type_display()}'
 
     def is_active(self):
-        return self.status == 'pending' or self.status == 'auto_resolved' and self.auto_resolve_pending
+        return self.status == 'pending'
